@@ -89,10 +89,35 @@ def get_model_path():
     model_path = os.path.join(main_path, "rpn_model.h5")
     return model_path
 
+def draw_grid_map(img, grid_map):
+    image = img_from_array(img)
+    draw = ImageDraw.Draw(image)
+    counter = 0
+    for grid in grid_map:
+        draw.rectangle((grid[0], grid[1], grid[2] + 5, grid[3] + 5), fill=(255, 255, 255, 0))
+        counter += 1
+    plt.figure()
+    plt.imshow(image)
+    plt.show()
+
+def draw_anchors(img, anchors, padding=200):
+    height, width, _ = img.shape
+    new_height, new_width = height + 2 * padding, width + 2 * padding
+    image = img_from_array(img)
+    padded_img = Image.new("RGB", (new_width, new_height))
+    padded_img.paste(image, (padding, padding))
+    for anchor in anchors:
+        padded_anchor = anchor + padding
+        draw = ImageDraw.Draw(padded_img)
+        draw.rectangle(padded_anchor.tolist(), outline=(255, 0, 0))
+    plt.figure()
+    plt.imshow(padded_img)
+    plt.show()
+
 def handle_gpu_compatibility():
     # For tf2 GPU compatibility
     try:
-        gpus = tf.config.experimental.list_physical_devices('GPU')
+        gpus = tf.config.experimental.list_physical_devices("GPU")
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except Exception as e:
