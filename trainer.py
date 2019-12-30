@@ -20,7 +20,9 @@ val_data = Helpers.get_pascal_VOC_data("val", Helpers.VOC["animals"])
 rpn_train_feed = rpn.rpn_feed(train_data, anchor_ratios, anchor_scales, stride, preprocess_input)
 rpn_val_feed = rpn.rpn_feed(val_data, anchor_ratios, anchor_scales, stride, preprocess_input)
 
-Helpers.handle_gpu_compatibility()
+args = Helpers.handle_args()
+if args.handle_gpu:
+    Helpers.handle_gpu_compatibility()
 
 model = VGG16(include_top=False, weights="imagenet")
 output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(model.output)

@@ -1,4 +1,5 @@
 import os
+import argparse
 from PIL import Image, ImageDraw
 import xml.etree.ElementTree as ET
 import tensorflow as tf
@@ -89,12 +90,16 @@ def get_model_path():
     model_path = os.path.join(main_path, "rpn_model.h5")
     return model_path
 
-def draw_grid_map(img, grid_map):
+def draw_grid_map(img, grid_map, stride):
     image = img_from_array(img)
     draw = ImageDraw.Draw(image)
     counter = 0
     for grid in grid_map:
-        draw.rectangle((grid[0] - 2, grid[1] - 2, grid[2] + 2, grid[3] + 2), fill=(255, 255, 255, 0))
+        draw.rectangle((
+            grid[0] + stride // 2 - 2,
+            grid[1] + stride // 2 - 2,
+            grid[2] + stride // 2 + 2,
+            grid[3] + stride // 2 + 2), fill=(255, 255, 255, 0))
         counter += 1
     plt.figure()
     plt.imshow(image)
@@ -113,6 +118,12 @@ def draw_anchors(img, anchors, padding=200):
     plt.figure()
     plt.imshow(padded_img)
     plt.show()
+
+def handle_args():
+    parser = argparse.ArgumentParser(description="Region Proposal Network Implementation")
+    parser.add_argument('-handle-gpu', action='store_true', help="Tensorflow 2 GPU compatibility flag")
+    args = parser.parse_args()
+    return args
 
 def handle_gpu_compatibility():
     # For tf2 GPU compatibility
