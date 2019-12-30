@@ -94,7 +94,7 @@ def draw_grid_map(img, grid_map):
     draw = ImageDraw.Draw(image)
     counter = 0
     for grid in grid_map:
-        draw.rectangle((grid[0], grid[1], grid[2] + 5, grid[3] + 5), fill=(255, 255, 255, 0))
+        draw.rectangle((grid[0] - 2, grid[1] - 2, grid[2] + 2, grid[3] + 2), fill=(255, 255, 255, 0))
         counter += 1
     plt.figure()
     plt.imshow(image)

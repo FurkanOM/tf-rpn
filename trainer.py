@@ -32,8 +32,8 @@ final_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.0001),
                     loss_weights=[10., 1.])
 
 model_path = Helpers.get_model_path()
-model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, monitor="val_rpn_cls_loss", mode="auto")
-early_stopping = EarlyStopping(monitor="val_rpn_cls_loss", patience=5, verbose=0, mode="auto")
+model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, monitor="val_loss", mode="auto")
+early_stopping = EarlyStopping(monitor="val_loss", patience=5, verbose=0, mode="auto")
 
 step_size_train = len(train_data) // batch_size
 step_size_val = len(val_data) // batch_size

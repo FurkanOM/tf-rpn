@@ -42,16 +42,18 @@ def calculate_iou(anc, gt):
     ### Calculate union area
     union_area = gt_area + anc_area - intersection_area
     # Intersection over Union
-    return intersection_area / max(union_area, 1.0)
+    return intersection_area / union_area
 
-def generate_iou_map(anchors, objects):
+def generate_iou_map(anchors, objects, width, height):
     anchor_count = anchors.shape[0]
     object_count = len(objects)
     iou_map = np.zeros((anchor_count, object_count), dtype=np.float)
-    for gt_index, object in enumerate(objects):
-        gt_box = object["bbox"]
-        gt = [gt_box["x_min"], gt_box["y_min"], gt_box["x_max"], gt_box["y_max"]]
-        for anc_index, anchor in enumerate(anchors):
+    for anc_index, anchor in enumerate(anchors):
+        if anchor[0] < 0 or anchor [1] < 0 or anchor[2] > width or anchor[3] > height:
+            continue
+        for gt_index, obj in enumerate(objects):
+            gt_box = obj["bbox"]
+            gt = [gt_box["x_min"], gt_box["y_min"], gt_box["x_max"], gt_box["y_max"]]
             iou = calculate_iou(anchor, gt)
             iou_map[anc_index, gt_index] = iou
     return iou_map
@@ -61,14 +63,14 @@ def get_bbox_deltas(anchors, objects, pos_anchors):
     for pos_anchor in pos_anchors:
         index, obj_n = pos_anchor
         anchor = anchors[index]
-        object = objects[obj_n]
+        obj = objects[obj_n]
         #
         anc_width = anchor[2] - anchor[0]
         anc_height = anchor[3] - anchor[1]
         anc_ctr_x = anchor[0] + 0.5 * anc_width
         anc_ctr_y = anchor[1] + 0.5 * anc_height
         #
-        gt_box = object["bbox"]
+        gt_box = obj["bbox"]
         gt_width = gt_box["x_max"] - gt_box["x_min"]
         gt_height = gt_box["y_max"] - gt_box["y_min"]
         gt_ctr_x = gt_box["x_min"] + 0.5 * gt_width
@@ -107,6 +109,12 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
     #
     grid_x = np.arange(0, output_width) * stride
     grid_y = np.arange(0, output_height) * stride
+    #
+    width_padding = (width - output_width * stride) / 2
+    height_padding = (height - output_height * stride) / 2
+    grid_x = width_padding + grid_x
+    grid_y = height_padding + grid_y
+    #
     grid_x, grid_y = np.meshgrid(grid_x, grid_y)
     grid_map = np.vstack((grid_x.ravel(), grid_y.ravel(), grid_x.ravel(), grid_y.ravel())).transpose()
     #
@@ -117,7 +125,7 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
               grid_map.reshape((1, output_area, 4)).transpose((1, 0, 2))
     anchors = anchors.reshape((output_area * anchor_count, 4))
     #
-    iou_map = generate_iou_map(anchors, objects)
+    iou_map = generate_iou_map(anchors, objects, width, height)
     # any time => iou_map.reshape(output_height, output_width, anchor_count, len(objects))
     ################################################################
     pos_anchor_indices, pos_gt_box_indices = np.where(iou_map > 0.7)
