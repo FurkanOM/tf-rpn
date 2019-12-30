@@ -121,18 +121,12 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     grid_x, grid_y = np.meshgrid(grid_x, grid_y)
     grid_map = np.vstack((grid_x.ravel(), grid_y.ravel(), grid_x.ravel(), grid_y.ravel())).transpose()
     #
-
-    Helpers.draw_grid_map(img, grid_map, stride)
-
     base_anchors = generate_base_anchors(stride, anchor_ratios, anchor_scales)
     #
     output_area = grid_map.shape[0]
     anchors = base_anchors.reshape((1, anchor_count, 4)) + \
               grid_map.reshape((1, output_area, 4)).transpose((1, 0, 2))
     anchors = anchors.reshape((output_area * anchor_count, 4))
-
-    Helpers.draw_anchors(img, anchors)
-
     return anchors
 
 # This method was implemented by examining the python
