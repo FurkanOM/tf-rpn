@@ -87,7 +87,7 @@ def get_model_path():
     main_path = "models"
     if not os.path.exists(main_path):
         os.makedirs(main_path)
-    model_path = os.path.join(main_path, "rpn_model.h5")
+    model_path = os.path.join(main_path, "rpn_model_weights.h5")
     return model_path
 
 def draw_grid_map(img, grid_map, stride):

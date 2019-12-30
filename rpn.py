@@ -1,6 +1,7 @@
 import tensorflow as tf
+from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.models import Model
 import numpy as np
-import math
 import Helpers
 
 def generate_base_anchors(stride, ratios, scales):
@@ -9,7 +10,7 @@ def generate_base_anchors(stride, ratios, scales):
     for scale in scales:
         for ratio in ratios:
             box_area = scale ** 2
-            w = round(math.sqrt(box_area / ratio))
+            w = round((box_area / ratio) ** 0.5)
             h = round(w * ratio)
             x_min = center - w / 2
             y_min = center - h / 2
@@ -58,7 +59,7 @@ def generate_iou_map(anchors, objects, width, height):
             iou_map[anc_index, gt_index] = iou
     return iou_map
 
-def get_bbox_deltas(anchors, objects, pos_anchors):
+def get_deltas_from_bboxes(anchors, objects, pos_anchors):
     bbox_deltas = np.zeros(anchors.shape)
     for pos_anchor in pos_anchors:
         index, obj_n = pos_anchor
@@ -100,12 +101,14 @@ def rpn_reg_loss(y_true, y_pred):
     lf = tf.losses.Huber()
     return tf.reduce_mean(lf(target, output))
 
-# This method was implemented by examining the python
-# implementation of the code in the original article.
-def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
-    anchor_count = len(anchor_ratios) * len(anchor_scales)
+def get_image_params(img, stride):
     height, width, _ = img.shape
     output_height, output_width = height // stride, width // stride
+    return height, width, output_height, output_width
+
+def get_anchors(img, anchor_ratios, anchor_scales, stride):
+    anchor_count = len(anchor_ratios) * len(anchor_scales)
+    height, width, output_height, output_width = get_image_params(img, stride)
     #
     grid_x = np.arange(0, output_width) * stride
     grid_y = np.arange(0, output_height) * stride
@@ -118,12 +121,27 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
     grid_x, grid_y = np.meshgrid(grid_x, grid_y)
     grid_map = np.vstack((grid_x.ravel(), grid_y.ravel(), grid_x.ravel(), grid_y.ravel())).transpose()
     #
+
+    Helpers.draw_grid_map(img, grid_map, stride)
+
     base_anchors = generate_base_anchors(stride, anchor_ratios, anchor_scales)
     #
     output_area = grid_map.shape[0]
     anchors = base_anchors.reshape((1, anchor_count, 4)) + \
               grid_map.reshape((1, output_area, 4)).transpose((1, 0, 2))
     anchors = anchors.reshape((output_area * anchor_count, 4))
+
+    Helpers.draw_anchors(img, anchors)
+
+    return anchors
+
+# This method was implemented by examining the python
+# implementation of the code in the original article.
+def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
+    anchor_count = len(anchor_ratios) * len(anchor_scales)
+    height, width, output_height, output_width = get_image_params(img, stride)
+    #
+    anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
     #
     iou_map = generate_iou_map(anchors, objects, width, height)
     # any time => iou_map.reshape(output_height, output_width, anchor_count, len(objects))
@@ -143,7 +161,7 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
     #############################
     # Bbox calculation
     #############################
-    bbox_deltas = get_bbox_deltas(anchors, objects, pos_anchors)
+    bbox_deltas = get_deltas_from_bboxes(anchors, objects, pos_anchors)
     #############################
     # Label calculation
     #############################
@@ -165,7 +183,7 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
     labels = np.expand_dims(labels, axis=0)
     return bbox_deltas, labels
 
-def rpn_feed(data, anchor_ratios, anchor_scales, stride, input_processor):
+def generator(data, anchor_ratios, anchor_scales, stride, input_processor):
     while True:
         for image_data in data:
             img = Helpers.get_image(image_data["image_path"], as_array=True)
@@ -173,3 +191,13 @@ def rpn_feed(data, anchor_ratios, anchor_scales, stride, input_processor):
             img = input_processor(img)
             img = np.expand_dims(img, axis=0)
             yield img, [bbox_deltas, labels]
+
+def get_model(base_model, anchor_count):
+    output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)
+    rpn_cls_output = Conv2D(anchor_count, (1, 1), activation="sigmoid", name="rpn_cls")(output)
+    rpn_reg_output = Conv2D(anchor_count * 4, (1, 1), activation="linear", name="rpn_reg")(output)
+    rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
+    rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.0001),
+                      loss=[rpn_reg_loss, rpn_cls_loss],
+                      loss_weights=[10., 1.])
+    return rpn_model

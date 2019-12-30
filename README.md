@@ -19,9 +19,16 @@ To train your model:
 python trainer.py
 ```
 
-If you have GPU issues.
-You can use gpu flag: **-handle-gpu**
+If you have gpu issues you can use **-handle-gpu** flag:
 
 ```sh
 python trainer.py -handle-gpu
 ```
+
+Grid - center of the every anchor boxes
+![Grid](http://furkanomerustaoglu.com/wp-content/uploads/2019/12/grid_map.png)
+
+Anchors output_width * output_height * anchor_count
+![Anchors](http://furkanomerustaoglu.com/wp-content/uploads/2019/12/anchors.png)
+
+Photo by Werner van Greuning on Unsplash
