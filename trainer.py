@@ -14,13 +14,15 @@ anchor_ratios = [0.5, 1, 2]
 anchor_scales = [64, 128, 256]
 anchor_count = len(anchor_ratios) * len(anchor_scales)
 stride = vgg16_stride = 32
+# If you want to use different dataset and don't know max height and width values
+# You can use calculate_max_height_width method in helpers
+max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
 
-train_data = Helpers.get_pascal_VOC_data("train", Helpers.VOC["animals"])
-val_data = Helpers.get_pascal_VOC_data("val", Helpers.VOC["animals"])
-# test_data = Helpers.get_pascal_VOC_data("test", Helpers.VOC["animals"])
+train_data = Helpers.get_pascal_VOC_data("train", Helpers.VOC["classes"])
+val_data = Helpers.get_pascal_VOC_data("val", Helpers.VOC["classes"])
 
-rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input)
-rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input)
+rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=True)
+rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=True)
 
 base_model = VGG16(include_top=False, weights="imagenet")
 rpn_model = rpn.get_model(base_model, anchor_count)
@@ -32,8 +34,8 @@ early_stopping = EarlyStopping(monitor="val_rpn_cls_loss", patience=5, verbose=0
 step_size_train = len(train_data) // batch_size
 step_size_val = len(val_data) // batch_size
 rpn_model.fit_generator(generator=rpn_train_feed,
-                          steps_per_epoch=step_size_train,
-                          validation_data=rpn_val_feed,
-                          validation_steps=step_size_val,
-                          epochs=epochs,
-                          callbacks=[early_stopping, model_checkpoint])
+                        steps_per_epoch=step_size_train,
+                        validation_data=rpn_val_feed,
+                        validation_steps=step_size_val,
+                        epochs=epochs,
+                        callbacks=[early_stopping, model_checkpoint])

@@ -14,7 +14,9 @@ VOC = {
     "animals": ["bird", "cat", "cow", "dog", "horse", "sheep"],
     "vehicles": ["aeroplane", "bicycle", "boat", "bus", "car", "motorbike", "train"],
     "indoors": ["bottle", "chair", "diningtable", "pottedplant", "sofa", "tvmonitor"],
-    "datatypes": ["train", "val", "trainval", "test"]
+    "datatypes": ["train", "val", "trainval", "test"],
+    "max_height": 500,
+    "max_width": 500,
 }
 VOC["classes"] = sorted(VOC["person"] + VOC["animals"] + VOC["vehicles"] + VOC["indoors"])
 
@@ -49,29 +51,42 @@ def handle_pascal_VOC_annotation(path, classes):
     tree = ET.parse(path)
     root = tree.getroot()
     size = root.find("size")
-    objects = []
+    gt_boxes = []
     for obj in root.findall("object"):
         bbox = obj.find("bndbox")
         name = obj.find("name").text
         if name not in classes:
             continue
-        objects.append({
+        gt_boxes.append({
+            "id": VOC["classes"].index(name),
             "name": name,
-            "obj_id": VOC["classes"].index(name),
-            "bbox": {
-                "x_min": int(bbox.find("xmin").text),
-                "y_min": int(bbox.find("ymin").text),
-                "x_max": int(bbox.find("xmax").text),
-                "y_max": int(bbox.find("ymax").text),
-            }
+            "bbox": [
+                int(bbox.find("xmin").text),
+                int(bbox.find("ymin").text),
+                int(bbox.find("xmax").text),
+                int(bbox.find("ymax").text),
+            ]
         })
     return {
         "filename": root.find("filename").text,
         "width": int(size.find("width").text),
         "height": int(size.find("height").text),
         "depth": int(size.find("depth").text),
-        "objects": objects
+        "gt_boxes": gt_boxes
     }
+
+def get_pascal_VOC_images_as_array(data):
+    imgs = []
+    for image_data in data:
+        img = get_image(image_data["image_path"], as_array=True)
+        imgs.append(img)
+    return imgs
+
+def get_pascal_VOC_ground_truth_boxes(data):
+    gt_boxes = []
+    for image_data in data:
+        gt_boxes.append(image_data["gt_boxes"])
+    return gt_boxes
 
 def get_image(path, as_array=False):
     image = Image.open(path)
@@ -106,11 +121,8 @@ def draw_grid_map(img, grid_map, stride):
     plt.show()
 
 def draw_anchors(img, anchors, padding=200):
-    height, width, _ = img.shape
-    new_height, new_width = height + 2 * padding, width + 2 * padding
     image = img_from_array(img)
-    padded_img = Image.new("RGB", (new_width, new_height))
-    padded_img.paste(image, (padding, padding))
+    padded_img = add_padding(image, padding, padding, padding, padding)
     for anchor in anchors:
         padded_anchor = anchor + padding
         draw = ImageDraw.Draw(padded_img)
@@ -118,6 +130,23 @@ def draw_anchors(img, anchors, padding=200):
     plt.figure()
     plt.imshow(padded_img)
     plt.show()
+
+def add_padding(image, top, right, bottom, left):
+    width, height = image.size
+    new_width = width + left + right
+    new_height = height + top + bottom
+    result = Image.new(image.mode, (new_width, new_height), (0, 0, 0))
+    result.paste(image, (left, top))
+    return result
+
+# It take images as numpy arrays and return max height, max width values
+def calculate_max_height_width(imgs):
+    h_w_map = np.zeros((len(imgs), 2), dtype=np.int32)
+    for index, img in enumerate(imgs):
+        h_w_map[index, 0], h_w_map[index, 1], _ = img.shape
+    max_val = h_w_map.argmax(axis=0)
+    max_height, max_width = h_w_map[max_val[0], 0], h_w_map[max_val[1], 1]
+    return max_height, max_width
 
 def handle_args():
     parser = argparse.ArgumentParser(description="Region Proposal Network Implementation")

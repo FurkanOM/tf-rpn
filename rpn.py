@@ -45,37 +45,36 @@ def calculate_iou(anc, gt):
     # Intersection over Union
     return intersection_area / union_area
 
-def generate_iou_map(anchors, objects, width, height):
+def generate_iou_map(anchors, gt_boxes, width, height):
     anchor_count = anchors.shape[0]
-    object_count = len(objects)
-    iou_map = np.zeros((anchor_count, object_count), dtype=np.float)
+    gt_box_count = len(gt_boxes)
+    iou_map = np.zeros((anchor_count, gt_box_count), dtype=np.float)
     for anc_index, anchor in enumerate(anchors):
         if anchor[0] < 0 or anchor [1] < 0 or anchor[2] > width or anchor[3] > height:
             continue
-        for gt_index, obj in enumerate(objects):
-            gt_box = obj["bbox"]
-            gt = [gt_box["x_min"], gt_box["y_min"], gt_box["x_max"], gt_box["y_max"]]
-            iou = calculate_iou(anchor, gt)
+        for gt_index, gt_box_data in enumerate(gt_boxes):
+            gt_box = gt_box_data["bbox"]
+            iou = calculate_iou(anchor, gt_box)
             iou_map[anc_index, gt_index] = iou
     return iou_map
 
-def get_deltas_from_bboxes(anchors, objects, pos_anchors):
+def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
     bbox_deltas = np.zeros(anchors.shape)
     for pos_anchor in pos_anchors:
-        index, obj_n = pos_anchor
+        index, gt_box_index = pos_anchor
         anchor = anchors[index]
-        obj = objects[obj_n]
+        gt_box_data = gt_boxes[gt_box_index]
         #
         anc_width = anchor[2] - anchor[0]
         anc_height = anchor[3] - anchor[1]
         anc_ctr_x = anchor[0] + 0.5 * anc_width
         anc_ctr_y = anchor[1] + 0.5 * anc_height
         #
-        gt_box = obj["bbox"]
-        gt_width = gt_box["x_max"] - gt_box["x_min"]
-        gt_height = gt_box["y_max"] - gt_box["y_min"]
-        gt_ctr_x = gt_box["x_min"] + 0.5 * gt_width
-        gt_ctr_y = gt_box["y_min"] + 0.5 * gt_height
+        gt_box = gt_box_data["bbox"]
+        gt_width = gt_box[2] - gt_box[0]
+        gt_height = gt_box[3] - gt_box[1]
+        gt_ctr_x = gt_box[0] + 0.5 * gt_width
+        gt_ctr_y = gt_box[1] + 0.5 * gt_height
         #
         delta_x = (gt_ctr_x - anc_ctr_x) / anc_width
         delta_y = (gt_ctr_y - anc_ctr_y) / anc_height
@@ -106,6 +105,33 @@ def get_image_params(img, stride):
     output_height, output_width = height // stride, width // stride
     return height, width, output_height, output_width
 
+def get_padded_img(img, max_height, max_width):
+    height, width, _ = img.shape
+    assert height <= max_height
+    assert width <= max_width
+    padding_height = max_height - height
+    padding_width = max_width - width
+    top = padding_height // 2
+    bottom = padding_height - top
+    left = padding_width // 2
+    right = padding_width - left
+    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant')
+
+def preprocess_img(path, max_height=None, max_width=None, apply_padding=False):
+    img = Helpers.get_image(path, as_array=True)
+    if apply_padding:
+        # Add padding to image depend of max values
+        # This speed up processes and allow to batch predictions
+        assert max_width != None
+        assert max_height != None
+        img = get_padded_img(img, max_height, max_width)
+    return img
+
+def postprocess_img(img, input_processor):
+    img = input_processor(img)
+    img = np.expand_dims(img, axis=0)
+    return img
+
 def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchor_count = len(anchor_ratios) * len(anchor_scales)
     height, width, output_height, output_width = get_image_params(img, stride)
@@ -131,14 +157,11 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
 
 # This method was implemented by examining the python
 # implementation of the code in the original article.
-def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
-    anchor_count = len(anchor_ratios) * len(anchor_scales)
+def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride):
     height, width, output_height, output_width = get_image_params(img, stride)
     #
-    anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
-    #
-    iou_map = generate_iou_map(anchors, objects, width, height)
-    # any time => iou_map.reshape(output_height, output_width, anchor_count, len(objects))
+    iou_map = generate_iou_map(anchors, gt_boxes, width, height)
+    # any time => iou_map.reshape(output_height, output_width, anchor_count, len(gt_boxes))
     ################################################################
     pos_anchor_indices, pos_gt_box_indices = np.where(iou_map > 0.7)
     gt_boxes_best_iou_indices = iou_map.argmax(axis=0)
@@ -155,7 +178,7 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
     #############################
     # Bbox calculation
     #############################
-    bbox_deltas = get_deltas_from_bboxes(anchors, objects, pos_anchors)
+    bbox_deltas = get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors)
     #############################
     # Label calculation
     #############################
@@ -177,21 +200,30 @@ def get_rpn_data(img, objects, anchor_ratios, anchor_scales, stride):
     labels = np.expand_dims(labels, axis=0)
     return bbox_deltas, labels
 
-def generator(data, anchor_ratios, anchor_scales, stride, input_processor):
+def generator(data,
+              anchor_ratios,
+              anchor_scales,
+              stride,
+              input_processor,
+              max_height=None,
+              max_width=None,
+              apply_padding=False):
     while True:
-        for image_data in data:
-            img = Helpers.get_image(image_data["image_path"], as_array=True)
-            bbox_deltas, labels = get_rpn_data(img, image_data["objects"], anchor_ratios, anchor_scales, stride)
-            img = input_processor(img)
-            img = np.expand_dims(img, axis=0)
+        for index, image_data in enumerate(data):
+            img = preprocess_img(image_data["image_path"], max_height, max_width, apply_padding)
+            anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
+            gt_boxes = image_data["gt_boxes"]
+            anchor_count = len(anchor_ratios) * len(anchor_scales)
+            bbox_deltas, labels = get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride)
+            img = postprocess_img(img, input_processor)
             yield img, [bbox_deltas, labels]
 
-def get_model(base_model, anchor_count):
+def get_model(base_model, anchor_count, learning_rate=0.001):
     output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)
     rpn_cls_output = Conv2D(anchor_count, (1, 1), activation="sigmoid", name="rpn_cls")(output)
     rpn_reg_output = Conv2D(anchor_count * 4, (1, 1), activation="linear", name="rpn_reg")(output)
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
-    rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.0001),
+    rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=learning_rate),
                       loss=[rpn_reg_loss, rpn_cls_loss],
                       loss_weights=[10., 1.])
     return rpn_model
