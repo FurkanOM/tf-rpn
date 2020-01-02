@@ -28,4 +28,4 @@ rpn_model.load_weights(model_path)
 for image_data in test_data:
     img = rpn.preprocess_img(image_data["image_path"])
     img = rpn.postprocess_img(img, preprocess_input)
-    pred_bbox_deltas, pred_labels = rpn_model.predict(img, verbose=1)
+    pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(img)
