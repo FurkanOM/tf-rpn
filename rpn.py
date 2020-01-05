@@ -58,6 +58,30 @@ def generate_iou_map(anchors, gt_boxes, width, height):
             iou_map[anc_index, gt_index] = iou
     return iou_map
 
+def get_bboxes_from_deltas(anchors, deltas):
+    bboxes = np.zeros(anchors.shape)
+    for index, delta in enumerate(deltas):
+        anchor = anchors[index]
+        delta_x, delta_y, delta_w, delta_h = delta
+        #
+        anc_width = anchor[2] - anchor[0]
+        anc_height = anchor[3] - anchor[1]
+        anc_ctr_x = anchor[0] + 0.5 * anc_width
+        anc_ctr_y = anchor[1] + 0.5 * anc_height
+        #
+        bbox_width = np.exp(delta_x) * anc_width
+        bbox_height = np.exp(delta_y) * anc_height
+        bbox_ctr_x = (delta_x * anc_width) + anc_ctr_x
+        bbox_ctr_y = (delta_y * anc_height) + anc_ctr_y
+        #
+        bbox_x1 = bbox_ctr_x - (0.5 * bbox_width)
+        bbox_y1 = bbox_ctr_y - (0.5 * bbox_height)
+        bbox_x2 = bbox_width + bbox_x1
+        bbox_y2 = bbox_height + bbox_y1
+        #
+        bboxes[index] = [bbox_x1, bbox_y1, bbox_x2, bbox_y2]
+    return bboxes
+
 def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
     bbox_deltas = np.zeros(anchors.shape)
     for pos_anchor in pos_anchors:

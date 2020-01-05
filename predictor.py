@@ -27,5 +27,14 @@ rpn_model.load_weights(model_path)
 
 for image_data in test_data:
     img = rpn.preprocess_img(image_data["image_path"])
+    anchors = rpn.get_anchors(img, anchor_ratios, anchor_scales, stride)
     img = rpn.postprocess_img(img, preprocess_input)
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(img)
+    pred_bbox_deltas = pred_bbox_deltas.numpy()
+    pred_labels = pred_labels.numpy()
+    _, output_height, output_width, _ = pred_bbox_deltas.shape
+    n_row = output_height * output_width * anchor_count
+    pred_bbox_deltas = pred_bbox_deltas.reshape((n_row, 4))
+    pred_labels = pred_labels.reshape((n_row, ))
+    sorted_label_indices = pred_labels.argsort()[::-1]
+    pred_bboxes = rpn.get_bboxes_from_deltas(anchors, pred_bbox_deltas)
