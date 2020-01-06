@@ -131,6 +131,19 @@ def draw_anchors(img, anchors, padding=200):
     plt.imshow(padded_img)
     plt.show()
 
+def resize_image(image, max_allowed_size):
+    width, height = image.size
+    max_image_size = max(height, width)
+    if max_allowed_size < max_image_size:
+        if height > width:
+            new_height = max_allowed_size
+            new_width = int(round(new_height * (width / height)))
+        else:
+            new_width = max_allowed_size
+            new_height = int(round(new_width * (height / width)))
+        image = image.resize((new_width, new_height), Image.ANTIALIAS)
+    return image
+
 def add_padding(image, top, right, bottom, left):
     width, height = image.size
     new_width = width + left + right

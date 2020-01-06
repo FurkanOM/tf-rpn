@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.keras.models import Sequential
 from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 import Helpers
@@ -8,7 +9,7 @@ args = Helpers.handle_args()
 if args.handle_gpu:
     Helpers.handle_gpu_compatibility()
 
-epochs = 60
+epochs = 100
 batch_size = 10
 anchor_ratios = [0.5, 1, 2]
 anchor_scales = [64, 128, 256]
@@ -25,11 +26,13 @@ rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride,
 rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=True)
 
 base_model = VGG16(include_top=False, weights="imagenet")
-rpn_model = rpn.get_model(base_model, anchor_count)
+#base_model = Sequential(base_model.layers[:-1])
+
+rpn_model = rpn.get_model(base_model, anchor_count, learning_rate=0.00001)
 
 model_path = Helpers.get_model_path()
-model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True, monitor="val_rpn_cls_loss", mode="auto")
-early_stopping = EarlyStopping(monitor="val_rpn_cls_loss", patience=5, verbose=0, mode="auto")
+model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True, monitor="val_loss", mode="auto")
+early_stopping = EarlyStopping(monitor="val_loss", patience=15, verbose=0, mode="auto")
 
 step_size_train = len(train_data) // batch_size
 step_size_val = len(val_data) // batch_size

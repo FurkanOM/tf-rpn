@@ -152,9 +152,10 @@ def preprocess_img(path, max_height=None, max_width=None, apply_padding=False):
     return img
 
 def postprocess_img(img, input_processor):
-    img = input_processor(img)
-    img = np.expand_dims(img, axis=0)
-    return img
+    processed_img = img.copy()
+    processed_img = input_processor(processed_img)
+    processed_img = np.expand_dims(processed_img, axis=0)
+    return processed_img
 
 def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchor_count = len(anchor_ratios) * len(anchor_scales)
@@ -187,18 +188,30 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride):
     iou_map = generate_iou_map(anchors, gt_boxes, width, height)
     # any time => iou_map.reshape(output_height, output_width, anchor_count, len(gt_boxes))
     ################################################################
-    pos_anchor_indices, pos_gt_box_indices = np.where(iou_map > 0.7)
-    gt_boxes_best_iou_indices = iou_map.argmax(axis=0)
-    gt_boxes_best_iou_values = iou_map[gt_boxes_best_iou_indices, np.arange(iou_map.shape[1])]
-    best_pos_anchor_indices, best_pos_gt_box_indices = np.where(iou_map == gt_boxes_best_iou_values)
-    pos_anchor_indices = np.concatenate((pos_anchor_indices, best_pos_anchor_indices))
-    pos_gt_box_indices = np.concatenate((pos_gt_box_indices, best_pos_gt_box_indices))
-    pos_anchors = np.stack((pos_anchor_indices, pos_gt_box_indices)).transpose()
-    pos_anchors = np.unique(pos_anchors, axis=0)
+    max_indices_each_gt_box = iou_map.argmax(axis=1)
+    # Positive and negative anchor numbers are 128 in original paper
+    pos_anchor_number = 64
+    # Set n pos anchor for every gt box
+    use_max_n_indices_each_gt_box = max(pos_anchor_number // len(gt_boxes), 1)
+    # You can use argsort(axis=1) for below operations
+    # But in that case you need to check duplicated anchors for gt boxes
+    pos_anchors = None
+    for n_col in range(iou_map.shape[1]):
+        # Get indices for gt box
+        indices_for_column = np.where(max_indices_each_gt_box == n_col)[0]
+        # Sort iou values descending order and get top n anchor indices for gt box
+        sorted_indices_for_column = iou_map[indices_for_column][:,n_col].argsort()[::-1][:use_max_n_indices_each_gt_box]
+        top_n_anchor_indices = indices_for_column[sorted_indices_for_column]
+        # Init column indices aka gt box number for every anchor indices
+        gt_box_indices = n_col + np.zeros(top_n_anchor_indices.shape, dtype=np.int32)
+        # Handle the shape anchor_index, gt_box_index
+        final_anchors = np.stack((top_n_anchor_indices, gt_box_indices)).transpose()
+        # Place anchors to the pos anchors
+        pos_anchors = final_anchors if pos_anchors is None else np.concatenate((pos_anchors, final_anchors), axis=0)
     #
-    max_element_column = iou_map.argmax(axis=1)
-    merged_iou_map = iou_map[np.arange(iou_map.shape[0]), max_element_column]
+    merged_iou_map = iou_map[np.arange(iou_map.shape[0]), max_indices_each_gt_box]
     neg_anchors = np.where(merged_iou_map < 0.3)[0]
+    neg_anchors = neg_anchors[~np.isin(neg_anchors, pos_anchors[:,0])]
     #############################
     # Bbox calculation
     #############################
@@ -212,8 +225,10 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride):
     labels[pos_anchors[:,0]] = 1
     neg_anchors_count = len(neg_anchors)
     pos_anchors_count = len(pos_anchors[:,0])
+    # We want to same number of positive and negative anchors
     # If there are more negative anchors than positive
-    # Randomly change some negative anchors to neutral
+    # Randomly change negative anchors to the neutral
+    # until negative and positive anchors are equal
     if neg_anchors_count > pos_anchors_count:
         new_neutral_anchors = np.random.choice(neg_anchors, size=(neg_anchors_count - pos_anchors_count), replace=False)
         labels[new_neutral_anchors] = -1
@@ -239,15 +254,15 @@ def generator(data,
             gt_boxes = image_data["gt_boxes"]
             anchor_count = len(anchor_ratios) * len(anchor_scales)
             bbox_deltas, labels = get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride)
-            img = postprocess_img(img, input_processor)
-            yield img, [bbox_deltas, labels]
+            input_img = postprocess_img(img, input_processor)
+            yield input_img, [bbox_deltas, labels]
 
 def get_model(base_model, anchor_count, learning_rate=0.001):
     output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)
     rpn_cls_output = Conv2D(anchor_count, (1, 1), activation="sigmoid", name="rpn_cls")(output)
     rpn_reg_output = Conv2D(anchor_count * 4, (1, 1), activation="linear", name="rpn_reg")(output)
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
-    rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=learning_rate),
+    rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=learning_rate, clipnorm=0.001),
                       loss=[rpn_reg_loss, rpn_cls_loss],
                       loss_weights=[10., 1.])
     return rpn_model
