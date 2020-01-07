@@ -60,26 +60,22 @@ def generate_iou_map(anchors, gt_boxes, width, height):
 
 def get_bboxes_from_deltas(anchors, deltas):
     bboxes = np.zeros(anchors.shape)
-    for index, delta in enumerate(deltas):
-        anchor = anchors[index]
-        delta_x, delta_y, delta_w, delta_h = delta
-        #
-        anc_width = anchor[2] - anchor[0]
-        anc_height = anchor[3] - anchor[1]
-        anc_ctr_x = anchor[0] + 0.5 * anc_width
-        anc_ctr_y = anchor[1] + 0.5 * anc_height
-        #
-        bbox_width = np.exp(delta_x) * anc_width
-        bbox_height = np.exp(delta_y) * anc_height
-        bbox_ctr_x = (delta_x * anc_width) + anc_ctr_x
-        bbox_ctr_y = (delta_y * anc_height) + anc_ctr_y
-        #
-        bbox_x1 = bbox_ctr_x - (0.5 * bbox_width)
-        bbox_y1 = bbox_ctr_y - (0.5 * bbox_height)
-        bbox_x2 = bbox_width + bbox_x1
-        bbox_y2 = bbox_height + bbox_y1
-        #
-        bboxes[index] = [bbox_x1, bbox_y1, bbox_x2, bbox_y2]
+    #
+    all_anc_width = anchors[:, 2] - anchors[:, 0]
+    all_anc_height = anchors[:, 3] - anchors[:, 1]
+    all_anc_ctr_x = anchors[:, 0] + 0.5 * all_anc_width
+    all_anc_ctr_y = anchors[:, 1] + 0.5 * all_anc_height
+    #
+    all_bbox_width = np.exp(deltas[:, 2]) * all_anc_width
+    all_bbox_height = np.exp(deltas[:, 3]) * all_anc_height
+    all_bbox_ctr_x = (deltas[:, 0] * all_anc_width) + all_anc_ctr_x
+    all_bbox_ctr_y = (deltas[:, 1] * all_anc_height) + all_anc_ctr_y
+    #
+    bboxes[:, 0] = all_bbox_ctr_x - (0.5 * all_bbox_width)
+    bboxes[:, 1] = all_bbox_ctr_y - (0.5 * all_bbox_height)
+    bboxes[:, 2] = all_bbox_width + bboxes[:, 0]
+    bboxes[:, 3] = all_bbox_height + bboxes[:, 1]
+    #
     return bboxes
 
 def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
@@ -139,17 +135,20 @@ def get_padded_img(img, max_height, max_width):
     bottom = padding_height - top
     left = padding_width // 2
     right = padding_width - left
-    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant')
+    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant'), top, left
 
-def preprocess_img(path, max_height=None, max_width=None, apply_padding=False):
+def update_gt_boxes(gt_boxes, top_padding, left_padding):
+    for gt_box in gt_boxes:
+        bbox = gt_box["bbox"]
+        bbox[0] += left_padding
+        bbox[1] += top_padding
+        bbox[2] += left_padding
+        bbox[3] += top_padding
+    return gt_boxes
+
+def preprocess_img(path, max_height, max_width):
     img = Helpers.get_image(path, as_array=True)
-    if apply_padding:
-        # Add padding to image depend of max values
-        # This speed up processes and allow to batch predictions
-        assert max_width != None
-        assert max_height != None
-        img = get_padded_img(img, max_height, max_width)
-    return img
+    return get_padded_img(img, max_height, max_width)
 
 def postprocess_img(img, input_processor):
     processed_img = img.copy()
@@ -249,9 +248,9 @@ def generator(data,
               apply_padding=False):
     while True:
         for index, image_data in enumerate(data):
-            img = preprocess_img(image_data["image_path"], max_height, max_width, apply_padding)
+            img, top_padding, left_padding = preprocess_img(image_data["image_path"], max_height, max_width, apply_padding)
             anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
-            gt_boxes = image_data["gt_boxes"]
+            gt_boxes = update_gt_boxes(image_data["gt_boxes"], top_padding, left_padding)
             anchor_count = len(anchor_ratios) * len(anchor_scales)
             bbox_deltas, labels = get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride)
             input_img = postprocess_img(img, input_processor)

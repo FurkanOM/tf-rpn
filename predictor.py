@@ -29,7 +29,7 @@ model_path = Helpers.get_model_path()
 rpn_model.load_weights(model_path)
 
 for image_data in test_data:
-    img = rpn.preprocess_img(image_data["image_path"], max_height, max_width, apply_padding=True)
+    img, top_padding, left_padding = rpn.preprocess_img(image_data["image_path"], max_height, max_width)
     input_img = rpn.postprocess_img(img, preprocess_input)
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
     pred_bbox_deltas = pred_bbox_deltas.numpy()
