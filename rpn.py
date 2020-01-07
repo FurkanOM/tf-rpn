@@ -243,12 +243,11 @@ def generator(data,
               anchor_scales,
               stride,
               input_processor,
-              max_height=None,
-              max_width=None,
-              apply_padding=False):
+              max_height,
+              max_width):
     while True:
         for index, image_data in enumerate(data):
-            img, top_padding, left_padding = preprocess_img(image_data["image_path"], max_height, max_width, apply_padding)
+            img, top_padding, left_padding = preprocess_img(image_data["image_path"], max_height, max_width)
             anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
             gt_boxes = update_gt_boxes(image_data["gt_boxes"], top_padding, left_padding)
             anchor_count = len(anchor_ratios) * len(anchor_scales)

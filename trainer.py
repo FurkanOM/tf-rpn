@@ -22,8 +22,8 @@ max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
 train_data = Helpers.get_pascal_VOC_data("train", Helpers.VOC["classes"])
 val_data = Helpers.get_pascal_VOC_data("val", Helpers.VOC["classes"])
 
-rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=True)
-rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=True)
+rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height, max_width)
+rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height, max_width)
 
 base_model = VGG16(include_top=False, weights="imagenet")
 #base_model = Sequential(base_model.layers[:-1])
