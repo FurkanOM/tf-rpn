@@ -98,11 +98,11 @@ def img_from_array(array):
 def array_from_img(image):
     return np.array(image)
 
-def get_model_path():
+def get_model_path(stride):
     main_path = "models"
     if not os.path.exists(main_path):
         os.makedirs(main_path)
-    model_path = os.path.join(main_path, "rpn_model_weights.h5")
+    model_path = os.path.join(main_path, "stride_" + str(stride) + "_rpn_model_weights.h5")
     return model_path
 
 def draw_grid_map(img, grid_map, stride):
@@ -144,6 +144,7 @@ def resize_image(image, max_allowed_size):
         image = image.resize((new_width, new_height), Image.ANTIALIAS)
     return image
 
+# image param => pillow image
 def add_padding(image, top, right, bottom, left):
     width, height = image.size
     new_width = width + left + right
@@ -151,6 +152,19 @@ def add_padding(image, top, right, bottom, left):
     result = Image.new(image.mode, (new_width, new_height), (0, 0, 0))
     result.paste(image, (left, top))
     return result
+
+# img param => numpy array
+def get_padded_img(img, max_height, max_width):
+    height, width, _ = img.shape
+    assert height <= max_height
+    assert width <= max_width
+    padding_height = max_height - height
+    padding_width = max_width - width
+    top = padding_height // 2
+    bottom = padding_height - top
+    left = padding_width // 2
+    right = padding_width - left
+    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant'), top, left
 
 # It take images as numpy arrays and return max height, max width values
 def calculate_max_height_width(imgs):

@@ -18,21 +18,23 @@ stride = vgg16_stride = 32
 # If you want to use different dataset and don't know max height and width values
 # You can use calculate_max_height_width method in helpers
 max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
+apply_padding = True
 
 train_data = Helpers.get_pascal_VOC_data("train", Helpers.VOC["classes"])
 val_data = Helpers.get_pascal_VOC_data("val", Helpers.VOC["classes"])
 
-rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height, max_width)
-rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height, max_width)
+rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
+rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
 
 base_model = VGG16(include_top=False, weights="imagenet")
-#base_model = Sequential(base_model.layers[:-1])
+if stride == 16:
+    base_model = Sequential(base_model.layers[:-1])
 
 rpn_model = rpn.get_model(base_model, anchor_count, learning_rate=0.00001)
 
-model_path = Helpers.get_model_path()
+model_path = Helpers.get_model_path(stride)
 model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True, monitor="val_loss", mode="auto")
-early_stopping = EarlyStopping(monitor="val_loss", patience=15, verbose=0, mode="auto")
+early_stopping = EarlyStopping(monitor="val_loss", patience=20, verbose=0, mode="auto")
 
 step_size_train = len(train_data) // batch_size
 step_size_val = len(val_data) // batch_size

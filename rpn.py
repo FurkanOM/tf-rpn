@@ -125,18 +125,6 @@ def get_image_params(img, stride):
     output_height, output_width = height // stride, width // stride
     return height, width, output_height, output_width
 
-def get_padded_img(img, max_height, max_width):
-    height, width, _ = img.shape
-    assert height <= max_height
-    assert width <= max_width
-    padding_height = max_height - height
-    padding_width = max_width - width
-    top = padding_height // 2
-    bottom = padding_height - top
-    left = padding_width // 2
-    right = padding_width - left
-    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant'), top, left
-
 def update_gt_boxes(gt_boxes, top_padding, left_padding):
     for gt_box in gt_boxes:
         bbox = gt_box["bbox"]
@@ -146,11 +134,7 @@ def update_gt_boxes(gt_boxes, top_padding, left_padding):
         bbox[3] += top_padding
     return gt_boxes
 
-def preprocess_img(path, max_height, max_width):
-    img = Helpers.get_image(path, as_array=True)
-    return get_padded_img(img, max_height, max_width)
-
-def postprocess_img(img, input_processor):
+def get_input_img(img, input_processor):
     processed_img = img.copy()
     processed_img = input_processor(processed_img)
     processed_img = np.expand_dims(processed_img, axis=0)
@@ -179,8 +163,6 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchors = anchors.reshape((output_area * anchor_count, 4))
     return anchors
 
-# This method was implemented by examining the python
-# implementation of the code in the original article.
 def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride):
     height, width, output_height, output_width = get_image_params(img, stride)
     #
@@ -243,16 +225,20 @@ def generator(data,
               anchor_scales,
               stride,
               input_processor,
-              max_height,
-              max_width):
+              max_height=None,
+              max_width=None,
+              apply_padding=False):
     while True:
         for index, image_data in enumerate(data):
-            img, top_padding, left_padding = preprocess_img(image_data["image_path"], max_height, max_width)
+            gt_boxes = image_data["gt_boxes"]
+            img = Helpers.get_image(image_data["image_path"], as_array=True)
+            if apply_padding:
+                img, top_padding, left_padding = Helpers.get_padded_img(img, max_height, max_width)
+                gt_boxes = update_gt_boxes(gt_boxes, top_padding, left_padding)
             anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
-            gt_boxes = update_gt_boxes(image_data["gt_boxes"], top_padding, left_padding)
             anchor_count = len(anchor_ratios) * len(anchor_scales)
             bbox_deltas, labels = get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride)
-            input_img = postprocess_img(img, input_processor)
+            input_img = get_input_img(img, input_processor)
             yield input_img, [bbox_deltas, labels]
 
 def get_model(base_model, anchor_count, learning_rate=0.001):
@@ -262,5 +248,5 @@ def get_model(base_model, anchor_count, learning_rate=0.001):
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
     rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=learning_rate, clipnorm=0.001),
                       loss=[rpn_reg_loss, rpn_cls_loss],
-                      loss_weights=[10., 1.])
+                      loss_weights=[5., 1.])
     return rpn_model
