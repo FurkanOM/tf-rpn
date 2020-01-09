@@ -170,31 +170,30 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride):
     # any time => iou_map.reshape(output_height, output_width, anchor_count, len(gt_boxes))
     ################################################################
     max_indices_each_gt_box = iou_map.argmax(axis=1)
-    # Positive and negative anchor numbers are 128 in original paper
-    pos_anchor_number = 64
-    # Set n pos anchor for every gt box
-    use_max_n_indices_each_gt_box = max(pos_anchor_number // len(gt_boxes), 1)
-    # You can use argsort(axis=1) for below operations
-    # But in that case you need to check duplicated anchors for gt boxes
-    pos_anchors = None
-    for n_col in range(iou_map.shape[1]):
-        # Get indices for gt box
-        indices_for_column = np.where(max_indices_each_gt_box == n_col)[0]
-        # Sort iou values descending order and get top n anchor indices for gt box
-        sorted_indices_for_column = iou_map[indices_for_column][:,n_col].argsort()[::-1][:use_max_n_indices_each_gt_box]
-        top_n_anchor_indices = indices_for_column[sorted_indices_for_column]
-        # Init column indices aka gt box number for every anchor indices
-        gt_box_indices = n_col + np.zeros(top_n_anchor_indices.shape, dtype=np.int32)
-        # Handle the shape anchor_index, gt_box_index
-        final_anchors = np.stack((top_n_anchor_indices, gt_box_indices)).transpose()
-        # Place anchors to the pos anchors
-        pos_anchors = final_anchors if pos_anchors is None else np.concatenate((pos_anchors, final_anchors), axis=0)
-    #
+    # IoU map has iou values for every gt boxes and we merge these values column wise
     merged_iou_map = iou_map[np.arange(iou_map.shape[0]), max_indices_each_gt_box]
+    sorted_iou_map = merged_iou_map.argsort()[::-1]
+    total_gt_box_count = len(gt_boxes)
+    # Positive and negative anchor numbers are 128 in original paper
+    total_pos_anchor_number = 64
+    # We initialize pos anchors with max n anchors
+    pos_anchors = np.array((sorted_iou_map[:total_pos_anchor_number], max_indices_each_gt_box[sorted_iou_map[:total_pos_anchor_number]])).transpose()
+    # This operation could cause duplicate pos anchors
+    # But this is not so important because we handle it during delta calculations
+    for n_col in range(total_gt_box_count):
+        replace_index = total_pos_anchor_number - n_col - 1
+        anchor_indices_for_gt_box = np.where(max_indices_each_gt_box == n_col)[0]
+        sorted_anchor_indices_for_gt_box = iou_map[anchor_indices_for_gt_box, n_col].argsort()[::-1]
+        sorted_max_anchor_indices_for_gt_box = anchor_indices_for_gt_box[sorted_anchor_indices_for_gt_box]
+        if not sorted_max_anchor_indices_for_gt_box.shape[0] > 0:
+            continue
+        max_anchor_index_for_gt_box = sorted_max_anchor_indices_for_gt_box[0]
+        pos_anchors[replace_index] = [max_anchor_index_for_gt_box, n_col]
+    #
     neg_anchors = np.where(merged_iou_map < 0.3)[0]
     neg_anchors = neg_anchors[~np.isin(neg_anchors, pos_anchors[:,0])]
     #############################
-    # Bbox calculation
+    # Bbox delta calculation
     #############################
     bbox_deltas = get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors)
     #############################
