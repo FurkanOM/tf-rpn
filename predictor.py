@@ -11,7 +11,7 @@ if args.handle_gpu:
     Helpers.handle_gpu_compatibility()
 
 anchor_ratios = [0.5, 1, 2]
-anchor_scales = [64, 128, 256]
+anchor_scales = [16, 32, 64, 128, 256]
 anchor_count = len(anchor_ratios) * len(anchor_scales)
 stride = vgg16_stride = 32
 # If you want to use different dataset and don't know max height and width values
@@ -25,19 +25,16 @@ base_model = VGG16(include_top=False)
 if stride == 16:
     base_model = Sequential(base_model.layers[:-1])
 
-rpn_model = rpn.get_model(base_model, anchor_count)
-
 model_path = Helpers.get_model_path(stride)
+rpn_model = rpn.get_model(base_model, anchor_count)
 rpn_model.load_weights(model_path)
 
-for image_data in test_data:
+for image_data in test_data[300:310]:
     img = Helpers.get_image(image_data["image_path"], as_array=True)
     if apply_padding:
         img, top_padding, left_padding = Helpers.get_padded_img(img, max_height, max_width)
     input_img = rpn.get_input_img(img, preprocess_input)
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
-    pred_bbox_deltas = pred_bbox_deltas.numpy()
-    pred_labels = pred_labels.numpy()
     _, output_height, output_width, _ = pred_bbox_deltas.shape
     n_row = output_height * output_width * anchor_count
     pred_bbox_deltas = pred_bbox_deltas.reshape((n_row, 4))

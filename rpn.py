@@ -240,12 +240,9 @@ def generator(data,
             input_img = get_input_img(img, input_processor)
             yield input_img, [bbox_deltas, labels]
 
-def get_model(base_model, anchor_count, learning_rate=0.001):
+def get_model(base_model, anchor_count):
     output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)
     rpn_cls_output = Conv2D(anchor_count, (1, 1), activation="sigmoid", name="rpn_cls")(output)
     rpn_reg_output = Conv2D(anchor_count * 4, (1, 1), activation="linear", name="rpn_reg")(output)
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
-    rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=learning_rate, clipnorm=0.001),
-                      loss=[rpn_reg_loss, rpn_cls_loss],
-                      loss_weights=[5., 1.])
     return rpn_model
