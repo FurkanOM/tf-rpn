@@ -92,6 +92,22 @@ def get_image(path, as_array=False):
     image = Image.open(path)
     return array_from_img(image) if as_array else image
 
+def get_image_boundaries(img):
+    img_height, img_width, _ = img.shape
+    return {
+        "top": 0,
+        "left": 0,
+        "right": img_width,
+        "bottom": img_height
+    }
+
+def update_image_boundaries_with_padding(img_boundaries, padding):
+    img_boundaries["top"] = padding["top"]
+    img_boundaries["left"] = padding["left"]
+    img_boundaries["bottom"] += padding["top"]
+    img_boundaries["right"] += padding["left"]
+    return img_boundaries
+
 def img_from_array(array):
     return Image.fromarray(array)
 
@@ -164,7 +180,13 @@ def get_padded_img(img, max_height, max_width):
     bottom = padding_height - top
     left = padding_width // 2
     right = padding_width - left
-    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant'), top, left
+    padding = {
+        "top": top,
+        "bottom": bottom,
+        "left": left,
+        "right": right,
+    }
+    return np.pad(img, ((top, bottom), (left, right), (0,0)), mode='constant'), padding
 
 # It take images as numpy arrays and return max height, max width values
 def calculate_max_height_width(imgs):

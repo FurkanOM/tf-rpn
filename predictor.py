@@ -29,10 +29,12 @@ model_path = Helpers.get_model_path(stride)
 rpn_model = rpn.get_model(base_model, anchor_count)
 rpn_model.load_weights(model_path)
 
-for image_data in test_data[300:310]:
+for image_data in test_data:
     img = Helpers.get_image(image_data["image_path"], as_array=True)
+    img_boundaries = Helpers.get_image_boundaries(img)
     if apply_padding:
-        img, top_padding, left_padding = Helpers.get_padded_img(img, max_height, max_width)
+        img, padding = Helpers.get_padded_img(img, max_height, max_width)
+        img_boundaries = Helpers.update_image_boundaries_with_padding(img_boundaries, padding)
     input_img = rpn.get_input_img(img, preprocess_input)
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
     _, output_height, output_width, _ = pred_bbox_deltas.shape

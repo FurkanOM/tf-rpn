@@ -45,12 +45,17 @@ def calculate_iou(anc, gt):
     # Intersection over Union
     return intersection_area / union_area
 
-def generate_iou_map(anchors, gt_boxes, width, height):
+def generate_iou_map(anchors, gt_boxes, img_boundaries):
     anchor_count = anchors.shape[0]
     gt_box_count = len(gt_boxes)
     iou_map = np.zeros((anchor_count, gt_box_count), dtype=np.float)
     for anc_index, anchor in enumerate(anchors):
-        if anchor[0] < 0 or anchor [1] < 0 or anchor[2] > width or anchor[3] > height:
+        if (
+            anchor[0] < img_boundaries["left"] or
+            anchor[1] < img_boundaries["top"] or
+            anchor[2] > img_boundaries["right"] or
+            anchor[3] > img_boundaries["bottom"]
+        ):
             continue
         for gt_index, gt_box_data in enumerate(gt_boxes):
             gt_box = gt_box_data["bbox"]
@@ -125,13 +130,13 @@ def get_image_params(img, stride):
     output_height, output_width = height // stride, width // stride
     return height, width, output_height, output_width
 
-def update_gt_boxes(gt_boxes, top_padding, left_padding):
+def update_gt_boxes(gt_boxes, padding):
     for gt_box in gt_boxes:
         bbox = gt_box["bbox"]
-        bbox[0] += left_padding
-        bbox[1] += top_padding
-        bbox[2] += left_padding
-        bbox[3] += top_padding
+        bbox[0] += padding["left"]
+        bbox[1] += padding["top"]
+        bbox[2] += padding["left"]
+        bbox[3] += padding["top"]
     return gt_boxes
 
 def get_input_img(img, input_processor):
@@ -163,10 +168,10 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchors = anchors.reshape((output_area * anchor_count, 4))
     return anchors
 
-def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride):
+def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img_boundaries):
     height, width, output_height, output_width = get_image_params(img, stride)
     #
-    iou_map = generate_iou_map(anchors, gt_boxes, width, height)
+    iou_map = generate_iou_map(anchors, gt_boxes, img_boundaries)
     # any time => iou_map.reshape(output_height, output_width, anchor_count, len(gt_boxes))
     ################################################################
     max_indices_each_gt_box = iou_map.argmax(axis=1)
@@ -231,12 +236,14 @@ def generator(data,
         for index, image_data in enumerate(data):
             gt_boxes = image_data["gt_boxes"]
             img = Helpers.get_image(image_data["image_path"], as_array=True)
+            img_boundaries = Helpers.get_image_boundaries(img)
             if apply_padding:
-                img, top_padding, left_padding = Helpers.get_padded_img(img, max_height, max_width)
-                gt_boxes = update_gt_boxes(gt_boxes, top_padding, left_padding)
+                img, padding = Helpers.get_padded_img(img, max_height, max_width)
+                gt_boxes = update_gt_boxes(gt_boxes, padding)
+                img_boundaries = Helpers.update_image_boundaries_with_padding(img_boundaries, padding)
             anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
             anchor_count = len(anchor_ratios) * len(anchor_scales)
-            bbox_deltas, labels = get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride)
+            bbox_deltas, labels = get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img_boundaries)
             input_img = get_input_img(img, input_processor)
             yield input_img, [bbox_deltas, labels]
 
