@@ -168,6 +168,14 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchors = anchors.reshape((output_area * anchor_count, 4))
     return anchors
 
+def get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels):
+    _, output_height, output_width, _ = pred_bbox_deltas.shape
+    n_row = output_height * output_width * anchor_count
+    pred_bbox_deltas = pred_bbox_deltas.reshape((n_row, 4))
+    pred_labels = pred_labels.reshape((n_row, ))
+    pred_bboxes = get_bboxes_from_deltas(anchors, pred_bbox_deltas)
+    return pred_bboxes, pred_labels
+
 def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img_boundaries):
     height, width, output_height, output_width = get_image_params(img, stride)
     #

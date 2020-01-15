@@ -37,11 +37,7 @@ for image_data in test_data:
         img_boundaries = Helpers.update_image_boundaries_with_padding(img_boundaries, padding)
     input_img = rpn.get_input_img(img, preprocess_input)
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
-    _, output_height, output_width, _ = pred_bbox_deltas.shape
-    n_row = output_height * output_width * anchor_count
-    pred_bbox_deltas = pred_bbox_deltas.reshape((n_row, 4))
-    pred_labels = pred_labels.reshape((n_row, ))
-    sorted_label_indices = pred_labels.argsort()[::-1]
     anchors = rpn.get_anchors(img, anchor_ratios, anchor_scales, stride)
-    pred_bboxes = rpn.get_bboxes_from_deltas(anchors, pred_bbox_deltas)
+    pred_bboxes, pred_labels = rpn.get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels)
+    sorted_label_indices = pred_labels.argsort()[::-1]
     Helpers.draw_anchors(img, pred_bboxes[sorted_label_indices[0:5]])
