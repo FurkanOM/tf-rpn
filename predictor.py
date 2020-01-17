@@ -39,5 +39,5 @@ for image_data in test_data:
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
     anchors = rpn.get_anchors(img, anchor_ratios, anchor_scales, stride)
     pred_bboxes, pred_labels = rpn.get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels)
-    sorted_label_indices = pred_labels.argsort()[::-1]
-    Helpers.draw_anchors(img, pred_bboxes[sorted_label_indices[0:5]])
+    selected_bboxes, selected_labels = rpn.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=10)
+    Helpers.draw_anchors(img, selected_bboxes)

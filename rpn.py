@@ -17,7 +17,7 @@ def generate_base_anchors(stride, ratios, scales):
             x_max = center + w / 2
             y_max = center + h / 2
             base_anchors.append([x_min, y_min, x_max, y_max])
-    return np.array(base_anchors)
+    return np.array(base_anchors, dtype=np.float32)
 
 def calculate_iou(anc, gt):
     ### Ground truth box x1, y1, x2, y2
@@ -48,7 +48,7 @@ def calculate_iou(anc, gt):
 def generate_iou_map(anchors, gt_boxes, img_boundaries):
     anchor_count = anchors.shape[0]
     gt_box_count = len(gt_boxes)
-    iou_map = np.zeros((anchor_count, gt_box_count), dtype=np.float)
+    iou_map = np.zeros((anchor_count, gt_box_count), dtype=np.float32)
     for anc_index, anchor in enumerate(anchors):
         if (
             anchor[0] < img_boundaries["left"] or
@@ -64,7 +64,7 @@ def generate_iou_map(anchors, gt_boxes, img_boundaries):
     return iou_map
 
 def get_bboxes_from_deltas(anchors, deltas):
-    bboxes = np.zeros(anchors.shape)
+    bboxes = np.zeros(anchors.shape, dtype=np.float32)
     #
     all_anc_width = anchors[:, 2] - anchors[:, 0]
     all_anc_height = anchors[:, 3] - anchors[:, 1]
@@ -84,7 +84,7 @@ def get_bboxes_from_deltas(anchors, deltas):
     return bboxes
 
 def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
-    bbox_deltas = np.zeros(anchors.shape)
+    bbox_deltas = np.zeros(anchors.shape, dtype=np.float32)
     for pos_anchor in pos_anchors:
         index, gt_box_index = pos_anchor
         anchor = anchors[index]
@@ -165,8 +165,16 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     output_area = grid_map.shape[0]
     anchors = base_anchors.reshape((1, anchor_count, 4)) + \
               grid_map.reshape((1, output_area, 4)).transpose((1, 0, 2))
-    anchors = anchors.reshape((output_area * anchor_count, 4))
+    anchors = anchors.reshape((output_area * anchor_count, 4)).astype(np.float32)
     return anchors
+
+def non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=300):
+    # This method get bboxes [y1, x1, y2, x2] format but it could be used for now
+    # Lots of method need to be updated with tensorflow methods
+    selected_indices = tf.image.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes)
+    selected_boxes = tf.gather(pred_bboxes, selected_indices)
+    selected_labels = tf.gather(pred_labels, selected_indices)
+    return selected_boxes.numpy(), selected_labels.numpy()
 
 def get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels):
     _, output_height, output_width, _ = pred_bbox_deltas.shape
@@ -190,7 +198,7 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img
     # Positive and negative anchor numbers are 128 in original paper
     total_pos_anchor_number = 64
     # We initialize pos anchors with max n anchors
-    pos_anchors = np.array((sorted_iou_map[:total_pos_anchor_number], max_indices_each_gt_box[sorted_iou_map[:total_pos_anchor_number]])).transpose()
+    pos_anchors = np.array((sorted_iou_map[:total_pos_anchor_number], max_indices_each_gt_box[sorted_iou_map[:total_pos_anchor_number]]), dtype=np.int32).transpose()
     # This operation could cause duplicate pos anchors
     # But this is not so important because we handle it during delta calculations
     for n_col in range(total_gt_box_count):
