@@ -92,6 +92,15 @@ def get_image(path, as_array=False):
     image = Image.open(path)
     return array_from_img(image) if as_array else image
 
+def bbox_handler(img, bboxes):
+    height, width, _ = img.shape
+    new_bboxes = np.zeros(bboxes.shape, dtype=np.float32)
+    new_bboxes[:, 0] = np.round(bboxes[:, 1] * width)
+    new_bboxes[:, 1] = np.round(bboxes[:, 0] * height)
+    new_bboxes[:, 2] = np.round(bboxes[:, 3] * width)
+    new_bboxes[:, 3] = np.round(bboxes[:, 2] * height)
+    return new_bboxes
+
 def get_image_boundaries(img):
     img_height, img_width, _ = img.shape
     return {

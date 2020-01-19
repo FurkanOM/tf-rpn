@@ -249,9 +249,10 @@ def generator(data,
               max_width=None,
               apply_padding=False):
     while True:
-        for index, image_data in enumerate(data):
-            gt_boxes = image_data["gt_boxes"]
-            img = Helpers.get_image(image_data["image_path"], as_array=True)
+        for image_data in data:
+            img = image_data["image"].numpy()
+            gt_boxes = Helpers.bbox_handler(img, image_data["objects"]["bbox"])
+            #img = Helpers.get_image(image_data["image_path"], as_array=True)
             img_boundaries = Helpers.get_image_boundaries(img)
             if apply_padding:
                 img, padding = Helpers.get_padded_img(img, max_height, max_width)

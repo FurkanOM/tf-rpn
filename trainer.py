@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+import tensorflow_datasets as tfds
 import Helpers
 import rpn
 
@@ -21,11 +22,11 @@ max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
 apply_padding = True
 load_weights = False
 
-train_data = Helpers.get_pascal_VOC_data("train", Helpers.VOC["classes"])
-val_data = Helpers.get_pascal_VOC_data("val", Helpers.VOC["classes"])
+VOC_train = tfds.load("voc", split=tfds.Split.TRAIN)
+VOC_val = tfds.load("voc", split=tfds.Split.VALIDATION)
 
-rpn_train_feed = rpn.generator(train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
-rpn_val_feed = rpn.generator(val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
+rpn_train_feed = rpn.generator(VOC_train, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
+rpn_val_feed = rpn.generator(VOC_val, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
 
 base_model = VGG16(include_top=False, weights="imagenet")
 if stride == 16:
