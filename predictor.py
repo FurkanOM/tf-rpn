@@ -2,7 +2,6 @@ import tensorflow as tf
 from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-import tensorflow_datasets as tfds
 import Helpers
 import rpn
 
@@ -19,7 +18,7 @@ stride = vgg16_stride = 32
 max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
 apply_padding = True
 
-VOC_test = tfds.load("voc", split=tfds.Split.TEST)
+VOC_test_data, _ = Helpers.get_VOC_data("test")
 
 base_model = VGG16(include_top=False)
 if stride == 16:
@@ -29,7 +28,7 @@ model_path = Helpers.get_model_path(stride)
 rpn_model = rpn.get_model(base_model, anchor_count)
 rpn_model.load_weights(model_path)
 
-for image_data in VOC_test:
+for image_data in VOC_test_data:
     img = image_data["image"].numpy()
     img_boundaries = Helpers.get_image_boundaries(img)
     if apply_padding:

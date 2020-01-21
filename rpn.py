@@ -58,8 +58,7 @@ def generate_iou_map(anchors, gt_boxes, img_boundaries):
         ):
             continue
         for gt_index, gt_box_data in enumerate(gt_boxes):
-            gt_box = gt_box_data["bbox"]
-            iou = calculate_iou(anchor, gt_box)
+            iou = calculate_iou(anchor, gt_box_data)
             iou_map[anc_index, gt_index] = iou
     return iou_map
 
@@ -95,11 +94,10 @@ def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
         anc_ctr_x = anchor[0] + 0.5 * anc_width
         anc_ctr_y = anchor[1] + 0.5 * anc_height
         #
-        gt_box = gt_box_data["bbox"]
-        gt_width = gt_box[2] - gt_box[0]
-        gt_height = gt_box[3] - gt_box[1]
-        gt_ctr_x = gt_box[0] + 0.5 * gt_width
-        gt_ctr_y = gt_box[1] + 0.5 * gt_height
+        gt_width = gt_box_data[2] - gt_box_data[0]
+        gt_height = gt_box_data[3] - gt_box_data[1]
+        gt_ctr_x = gt_box_data[0] + 0.5 * gt_width
+        gt_ctr_y = gt_box_data[1] + 0.5 * gt_height
         #
         delta_x = (gt_ctr_x - anc_ctr_x) / anc_width
         delta_y = (gt_ctr_y - anc_ctr_y) / anc_height
@@ -131,12 +129,10 @@ def get_image_params(img, stride):
     return height, width, output_height, output_width
 
 def update_gt_boxes(gt_boxes, padding):
-    for gt_box in gt_boxes:
-        bbox = gt_box["bbox"]
-        bbox[0] += padding["left"]
-        bbox[1] += padding["top"]
-        bbox[2] += padding["left"]
-        bbox[3] += padding["top"]
+    gt_boxes[:, 0] += padding["left"]
+    gt_boxes[:, 1] += padding["top"]
+    gt_boxes[:, 2] += padding["left"]
+    gt_boxes[:, 3] += padding["top"]
     return gt_boxes
 
 def get_input_img(img, input_processor):
@@ -169,8 +165,7 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     return anchors
 
 def non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=300):
-    # This method get bboxes [y1, x1, y2, x2] format but it could be used for now
-    # Lots of method need to be updated with tensorflow methods
+    # This method get bboxes [y1, x1, y2, x2] format but it could be used
     selected_indices = tf.image.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes)
     selected_boxes = tf.gather(pred_bboxes, selected_indices)
     selected_labels = tf.gather(pred_labels, selected_indices)
@@ -188,13 +183,13 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img
     height, width, output_height, output_width = get_image_params(img, stride)
     #
     iou_map = generate_iou_map(anchors, gt_boxes, img_boundaries)
-    # any time => iou_map.reshape(output_height, output_width, anchor_count, len(gt_boxes))
+    # any time => iou_map.reshape(output_height, output_width, anchor_count, gt_boxes.shape[0])
     ################################################################
     max_indices_each_gt_box = iou_map.argmax(axis=1)
     # IoU map has iou values for every gt boxes and we merge these values column wise
     merged_iou_map = iou_map[np.arange(iou_map.shape[0]), max_indices_each_gt_box]
     sorted_iou_map = merged_iou_map.argsort()[::-1]
-    total_gt_box_count = len(gt_boxes)
+    total_gt_box_count = gt_boxes.shape[0]
     # Positive and negative anchor numbers are 128 in original paper
     total_pos_anchor_number = 64
     # We initialize pos anchors with max n anchors
@@ -217,6 +212,8 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img
     # Bbox delta calculation
     #############################
     bbox_deltas = get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors)
+    import code
+    code.interact(local=locals())
     #############################
     # Label calculation
     #############################
@@ -252,7 +249,6 @@ def generator(data,
         for image_data in data:
             img = image_data["image"].numpy()
             gt_boxes = Helpers.bbox_handler(img, image_data["objects"]["bbox"])
-            #img = Helpers.get_image(image_data["image_path"], as_array=True)
             img_boundaries = Helpers.get_image_boundaries(img)
             if apply_padding:
                 img, padding = Helpers.get_padded_img(img, max_height, max_width)
