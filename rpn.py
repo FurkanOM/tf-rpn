@@ -212,8 +212,6 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img
     # Bbox delta calculation
     #############################
     bbox_deltas = get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors)
-    import code
-    code.interact(local=locals())
     #############################
     # Label calculation
     #############################
