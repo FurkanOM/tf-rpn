@@ -45,18 +45,11 @@ def calculate_iou(anc, gt):
     # Intersection over Union
     return intersection_area / union_area
 
-def generate_iou_map(anchors, gt_boxes, img_boundaries):
+def generate_iou_map(anchors, gt_boxes):
     anchor_count = anchors.shape[0]
     gt_box_count = len(gt_boxes)
     iou_map = np.zeros((anchor_count, gt_box_count), dtype=np.float32)
     for anc_index, anchor in enumerate(anchors):
-        if (
-            anchor[0] < img_boundaries["left"] or
-            anchor[1] < img_boundaries["top"] or
-            anchor[2] > img_boundaries["right"] or
-            anchor[3] > img_boundaries["bottom"]
-        ):
-            continue
         for gt_index, gt_box_data in enumerate(gt_boxes):
             iou = calculate_iou(anchor, gt_box_data)
             iou_map[anc_index, gt_index] = iou
@@ -179,35 +172,46 @@ def get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pre
     pred_bboxes = get_bboxes_from_deltas(anchors, pred_bbox_deltas)
     return pred_bboxes, pred_labels
 
-def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img_boundaries):
-    height, width, output_height, output_width = get_image_params(img, stride)
-    #
-    iou_map = generate_iou_map(anchors, gt_boxes, img_boundaries)
+def get_positive_and_negative_anchors(anchors, gt_boxes, total_pos_anchor_number=64):
+    iou_map = generate_iou_map(anchors, gt_boxes)
     # any time => iou_map.reshape(output_height, output_width, anchor_count, gt_boxes.shape[0])
     ################################################################
+    total_gt_box_count = gt_boxes.shape[0]
     max_indices_each_gt_box = iou_map.argmax(axis=1)
     # IoU map has iou values for every gt boxes and we merge these values column wise
     merged_iou_map = iou_map[np.arange(iou_map.shape[0]), max_indices_each_gt_box]
-    sorted_iou_map = merged_iou_map.argsort()[::-1]
-    total_gt_box_count = gt_boxes.shape[0]
-    # Positive and negative anchor numbers are 128 in original paper
-    total_pos_anchor_number = 64
-    # We initialize pos anchors with max n anchors
-    pos_anchors = np.array((sorted_iou_map[:total_pos_anchor_number], max_indices_each_gt_box[sorted_iou_map[:total_pos_anchor_number]]), dtype=np.int32).transpose()
-    # This operation could cause duplicate pos anchors
-    # But this is not so important because we handle it during delta calculations
+    masked_merged_iou_map = np.ma.array(merged_iou_map, mask=False)
+    # First we calculate max overlapped box for every ground truth box
     for n_col in range(total_gt_box_count):
-        replace_index = total_pos_anchor_number - n_col - 1
         anchor_indices_for_gt_box = np.where(max_indices_each_gt_box == n_col)[0]
-        sorted_anchor_indices_for_gt_box = iou_map[anchor_indices_for_gt_box, n_col].argsort()[::-1]
-        sorted_max_anchor_indices_for_gt_box = anchor_indices_for_gt_box[sorted_anchor_indices_for_gt_box]
-        if not sorted_max_anchor_indices_for_gt_box.shape[0] > 0:
+        if anchor_indices_for_gt_box.shape[0] == 0:
             continue
-        max_anchor_index_for_gt_box = sorted_max_anchor_indices_for_gt_box[0]
-        pos_anchors[replace_index] = [max_anchor_index_for_gt_box, n_col]
+        max_anchor_index_for_gt_box = iou_map[:, n_col].argmax()
+        masked_merged_iou_map.mask[max_anchor_index_for_gt_box] = True
     #
-    neg_anchors = np.where(merged_iou_map < 0.3)[0]
+    sorted_iou_map = masked_merged_iou_map.argsort()[::-1]
+    sorted_anchor_indices = sorted_iou_map[:total_pos_anchor_number]
+    # We finalize pos anchors with max n anchors
+    pos_anchors = np.array((sorted_anchor_indices, max_indices_each_gt_box[sorted_anchor_indices]), dtype=np.int32).transpose()
+    ##########
+    neg_anchors = np.where(masked_merged_iou_map < 0.3)[0]
     neg_anchors = neg_anchors[~np.isin(neg_anchors, pos_anchors[:,0])]
+    neg_anchors_count = len(neg_anchors)
+    pos_anchors_count = len(pos_anchors[:,0])
+    # If there are more negative anchors than positive
+    # randomly select negative anchors as many as positive anchor number
+    if neg_anchors_count > pos_anchors_count:
+        neg_anchors = np.random.choice(neg_anchors, size=pos_anchors_count, replace=False)
+    #
+    return pos_anchors, neg_anchors
+
+def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img_boundaries):
+    height, width, output_height, output_width = get_image_params(img, stride)
+    #############################
+    # Positive and negative anchors calculation
+    #############################
+    # Positive and negative anchor numbers are 128 in original paper
+    pos_anchors, neg_anchors = get_positive_and_negative_anchors(anchors, gt_boxes, total_pos_anchor_number=64)
     #############################
     # Bbox delta calculation
     #############################
@@ -216,18 +220,9 @@ def get_bbox_deltas_and_labels(img, anchors, gt_boxes, anchor_count, stride, img
     # Label calculation
     #############################
     # labels => 1 object, 0 background, -1 neutral
-    labels = -1 * np.ones((iou_map.shape[0], ), dtype=np.float32)
+    labels = -1 * np.ones((anchors.shape[0], ), dtype=np.float32)
     labels[neg_anchors] = 0
     labels[pos_anchors[:,0]] = 1
-    neg_anchors_count = len(neg_anchors)
-    pos_anchors_count = len(pos_anchors[:,0])
-    # We want to same number of positive and negative anchors
-    # If there are more negative anchors than positive
-    # Randomly change negative anchors to the neutral
-    # until negative and positive anchors are equal
-    if neg_anchors_count > pos_anchors_count:
-        new_neutral_anchors = np.random.choice(neg_anchors, size=(neg_anchors_count - pos_anchors_count), replace=False)
-        labels[new_neutral_anchors] = -1
     ############################################################
     bbox_deltas = bbox_deltas.reshape(output_height, output_width, anchor_count * 4)
     bbox_deltas = np.expand_dims(bbox_deltas, axis=0)
@@ -246,7 +241,8 @@ def generator(data,
     while True:
         for image_data in data:
             img = image_data["image"].numpy()
-            gt_boxes = Helpers.bbox_handler(img, image_data["objects"]["bbox"])
+            img_height, img_width, _ = img.shape
+            gt_boxes = Helpers.denormalize_bboxes(image_data["objects"]["bbox"], img_height, img_width)
             img_boundaries = Helpers.get_image_boundaries(img)
             if apply_padding:
                 img, padding = Helpers.get_padded_img(img, max_height, max_width)
