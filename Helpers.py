@@ -18,30 +18,13 @@ VOC = {
 def get_VOC_data(split):
     assert split in ["train", "validation", "test"]
     dataset, info = tfds.load("voc", split=split, with_info=True)
+    label_len = info.features["labels"].num_classes
     data_len = info.splits[split].num_examples
-    return dataset, data_len
+    return dataset, data_len, label_len
 
 def get_image(path, as_array=False):
     image = Image.open(path)
     return array_from_img(image) if as_array else image
-
-# Normalized [y1, x1, y2, x2] => Denormalized [x1, y1, x2, y2]
-def denormalize_bboxes(bboxes, height, width):
-    new_bboxes = np.zeros(bboxes.shape, dtype=np.float32)
-    new_bboxes[:, 0] = np.round(bboxes[:, 1] * width)
-    new_bboxes[:, 1] = np.round(bboxes[:, 0] * height)
-    new_bboxes[:, 2] = np.round(bboxes[:, 3] * width)
-    new_bboxes[:, 3] = np.round(bboxes[:, 2] * height)
-    return new_bboxes
-
-# Denormalized [x1, y1, x2, y2] => Normalized [y1, x1, y2, x2]
-def normalize_bboxes(bboxes, height, width):
-    new_bboxes = np.zeros(bboxes.shape, dtype=np.float32)
-    new_bboxes[:, 0] = bboxes[:, 1] / height
-    new_bboxes[:, 1] = bboxes[:, 0] / width
-    new_bboxes[:, 2] = bboxes[:, 3] / height
-    new_bboxes[:, 3] = bboxes[:, 2] / width
-    return new_bboxes
 
 def get_image_boundaries(img):
     img_height, img_width, _ = img.shape

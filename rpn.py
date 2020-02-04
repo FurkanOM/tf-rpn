@@ -16,17 +16,17 @@ def generate_base_anchors(stride, ratios, scales):
             y_min = center - h / 2
             x_max = center + w / 2
             y_max = center + h / 2
-            base_anchors.append([x_min, y_min, x_max, y_max])
+            base_anchors.append([y_min, x_min, y_max, x_max])
     return np.array(base_anchors, dtype=np.float32)
 
 def calculate_iou(anc, gt):
-    ### Ground truth box x1, y1, x2, y2
-    gt_x1, gt_y1, gt_x2, gt_y2 = gt
+    ### Ground truth box normalized y1, x1, y2, x2
+    gt_y1, gt_x1, gt_y2, gt_x2 = gt
     gt_width = gt_x2 - gt_x1
     gt_height = gt_y2 - gt_y1
     gt_area = gt_width * gt_height
-    ### Anchor x1, y1, x2, y2
-    anc_x1, anc_y1, anc_x2, anc_y2 = anc
+    ### Anchor normalized y1, x1, y2, x2
+    anc_y1, anc_x1, anc_y2, anc_x2 = anc
     anc_width = anc_x2 - anc_x1
     anc_height = anc_y2 - anc_y1
     anc_area = anc_width * anc_height
@@ -58,20 +58,20 @@ def generate_iou_map(anchors, gt_boxes):
 def get_bboxes_from_deltas(anchors, deltas):
     bboxes = np.zeros(anchors.shape, dtype=np.float32)
     #
-    all_anc_width = anchors[:, 2] - anchors[:, 0]
-    all_anc_height = anchors[:, 3] - anchors[:, 1]
-    all_anc_ctr_x = anchors[:, 0] + 0.5 * all_anc_width
-    all_anc_ctr_y = anchors[:, 1] + 0.5 * all_anc_height
+    all_anc_width = anchors[:, 3] - anchors[:, 1]
+    all_anc_height = anchors[:, 2] - anchors[:, 0]
+    all_anc_ctr_x = anchors[:, 1] + 0.5 * all_anc_width
+    all_anc_ctr_y = anchors[:, 0] + 0.5 * all_anc_height
     #
-    all_bbox_width = np.exp(deltas[:, 2]) * all_anc_width
-    all_bbox_height = np.exp(deltas[:, 3]) * all_anc_height
-    all_bbox_ctr_x = (deltas[:, 0] * all_anc_width) + all_anc_ctr_x
-    all_bbox_ctr_y = (deltas[:, 1] * all_anc_height) + all_anc_ctr_y
+    all_bbox_width = np.exp(deltas[:, 3]) * all_anc_width
+    all_bbox_height = np.exp(deltas[:, 2]) * all_anc_height
+    all_bbox_ctr_x = (deltas[:, 1] * all_anc_width) + all_anc_ctr_x
+    all_bbox_ctr_y = (deltas[:, 0] * all_anc_height) + all_anc_ctr_y
     #
-    bboxes[:, 0] = all_bbox_ctr_x - (0.5 * all_bbox_width)
-    bboxes[:, 1] = all_bbox_ctr_y - (0.5 * all_bbox_height)
-    bboxes[:, 2] = all_bbox_width + bboxes[:, 0]
-    bboxes[:, 3] = all_bbox_height + bboxes[:, 1]
+    bboxes[:, 0] = all_bbox_ctr_y - (0.5 * all_bbox_height)
+    bboxes[:, 1] = all_bbox_ctr_x - (0.5 * all_bbox_width)
+    bboxes[:, 2] = all_bbox_height + bboxes[:, 0]
+    bboxes[:, 3] = all_bbox_width + bboxes[:, 1]
     #
     return bboxes
 
@@ -82,24 +82,37 @@ def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
         anchor = anchors[index]
         gt_box_data = gt_boxes[gt_box_index]
         #
-        anc_width = anchor[2] - anchor[0]
-        anc_height = anchor[3] - anchor[1]
-        anc_ctr_x = anchor[0] + 0.5 * anc_width
-        anc_ctr_y = anchor[1] + 0.5 * anc_height
+        anc_width = anchor[3] - anchor[1]
+        anc_height = anchor[2] - anchor[0]
+        anc_ctr_x = anchor[1] + 0.5 * anc_width
+        anc_ctr_y = anchor[0] + 0.5 * anc_height
         #
-        gt_width = gt_box_data[2] - gt_box_data[0]
-        gt_height = gt_box_data[3] - gt_box_data[1]
-        gt_ctr_x = gt_box_data[0] + 0.5 * gt_width
-        gt_ctr_y = gt_box_data[1] + 0.5 * gt_height
+        gt_width = gt_box_data[3] - gt_box_data[1]
+        gt_height = gt_box_data[2] - gt_box_data[0]
+        gt_ctr_x = gt_box_data[1] + 0.5 * gt_width
+        gt_ctr_y = gt_box_data[0] + 0.5 * gt_height
         #
         delta_x = (gt_ctr_x - anc_ctr_x) / anc_width
         delta_y = (gt_ctr_y - anc_ctr_y) / anc_height
         delta_w = np.log(gt_width / anc_width)
         delta_h = np.log(gt_height / anc_height)
         #
-        bbox_deltas[index] = [delta_x, delta_y, delta_w, delta_h]
+        bbox_deltas[index] = [delta_y, delta_x, delta_h, delta_w]
     #
     return bbox_deltas
+
+def get_labels_from_bboxes(anchors, gt_labels, pos_anchors, total_label_number):
+    labels = np.zeros((anchors.shape[0], total_label_number+1), dtype=np.int32)
+    labels[:, -1] = 1
+    for pos_anchor in pos_anchors:
+        index, gt_label_index = pos_anchor
+        labels[index, gt_labels[gt_label_index]] = 1
+        labels[index, -1] = 0
+    return labels
+
+def faster_rcnn_cls_loss(y_true, y_pred):
+    lf = tf.losses.CategoricalCrossentropy()
+    return tf.reduce_mean(lf(y_true, y_pred))
 
 def rpn_cls_loss(y_true, y_pred):
     indices = tf.where(tf.not_equal(y_true, -1))
@@ -121,11 +134,13 @@ def get_image_params(img, stride):
     output_height, output_width = height // stride, width // stride
     return height, width, output_height, output_width
 
-def update_gt_boxes(gt_boxes, padding):
-    gt_boxes[:, 0] += padding["left"]
-    gt_boxes[:, 1] += padding["top"]
-    gt_boxes[:, 2] += padding["left"]
-    gt_boxes[:, 3] += padding["top"]
+def update_gt_boxes(gt_boxes, img_height, img_width, padding):
+    padded_height = img_height + padding["top"] + padding["bottom"]
+    padded_width = img_width + padding["left"] + padding["right"]
+    gt_boxes[:, 0] = (np.round(gt_boxes[:, 0] * img_height) + padding["top"]) / padded_height
+    gt_boxes[:, 1] = (np.round(gt_boxes[:, 1] * img_width) + padding["left"]) / padded_width
+    gt_boxes[:, 2] = (np.round(gt_boxes[:, 2] * img_height) + padding["top"]) / padded_height
+    gt_boxes[:, 3] = (np.round(gt_boxes[:, 3] * img_width) + padding["left"]) / padded_width
     return gt_boxes
 
 def get_input_img(img, input_processor):
@@ -133,6 +148,14 @@ def get_input_img(img, input_processor):
     processed_img = input_processor(processed_img)
     processed_img = np.expand_dims(processed_img, axis=0)
     return processed_img
+
+def normalize_bboxes(bboxes, height, width):
+    new_bboxes = np.zeros(bboxes.shape, dtype=np.float32)
+    new_bboxes[:, 0] = bboxes[:, 0] / height
+    new_bboxes[:, 1] = bboxes[:, 1] / width
+    new_bboxes[:, 2] = bboxes[:, 2] / height
+    new_bboxes[:, 3] = bboxes[:, 3] / width
+    return new_bboxes
 
 def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchor_count = len(anchor_ratios) * len(anchor_scales)
@@ -146,8 +169,8 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     grid_x = width_padding + grid_x
     grid_y = height_padding + grid_y
     #
-    grid_x, grid_y = np.meshgrid(grid_x, grid_y)
-    grid_map = np.vstack((grid_x.ravel(), grid_y.ravel(), grid_x.ravel(), grid_y.ravel())).transpose()
+    grid_y, grid_x = np.meshgrid(grid_y, grid_x)
+    grid_map = np.vstack((grid_y.ravel(), grid_x.ravel(), grid_y.ravel(), grid_x.ravel())).transpose()
     #
     base_anchors = generate_base_anchors(stride, anchor_ratios, anchor_scales)
     #
@@ -155,10 +178,10 @@ def get_anchors(img, anchor_ratios, anchor_scales, stride):
     anchors = base_anchors.reshape((1, anchor_count, 4)) + \
               grid_map.reshape((1, output_area, 4)).transpose((1, 0, 2))
     anchors = anchors.reshape((output_area * anchor_count, 4)).astype(np.float32)
+    anchors = normalize_bboxes(anchors, height, width)
     return anchors
 
 def non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=300):
-    # This method get bboxes [y1, x1, y2, x2] format but it could be used
     selected_indices = tf.image.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes)
     selected_boxes = tf.gather(pred_bboxes, selected_indices)
     selected_labels = tf.gather(pred_labels, selected_indices)
@@ -242,11 +265,11 @@ def generator(data,
         for image_data in data:
             img = image_data["image"].numpy()
             img_height, img_width, _ = img.shape
-            gt_boxes = Helpers.denormalize_bboxes(image_data["objects"]["bbox"], img_height, img_width)
+            gt_boxes = image_data["objects"]["bbox"].numpy()
             img_boundaries = Helpers.get_image_boundaries(img)
             if apply_padding:
                 img, padding = Helpers.get_padded_img(img, max_height, max_width)
-                gt_boxes = update_gt_boxes(gt_boxes, padding)
+                gt_boxes = update_gt_boxes(gt_boxes, img_height, img_width, padding)
                 img_boundaries = Helpers.update_image_boundaries_with_padding(img_boundaries, padding)
             anchors = get_anchors(img, anchor_ratios, anchor_scales, stride)
             anchor_count = len(anchor_ratios) * len(anchor_scales)

@@ -21,8 +21,8 @@ max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
 apply_padding = True
 load_weights = False
 
-VOC_train_data, VOC_train_data_len = Helpers.get_VOC_data("train")
-VOC_val_data, VOC_val_data_len = Helpers.get_VOC_data("validation")
+VOC_train_data, VOC_train_data_len, _ = Helpers.get_VOC_data("train")
+VOC_val_data, VOC_val_data_len, _ = Helpers.get_VOC_data("validation")
 
 rpn_train_feed = rpn.generator(VOC_train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
 rpn_val_feed = rpn.generator(VOC_val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)

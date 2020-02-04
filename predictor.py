@@ -18,7 +18,7 @@ stride = vgg16_stride = 32
 max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
 apply_padding = True
 
-VOC_test_data, _ = Helpers.get_VOC_data("test")
+VOC_test_data, _, total_label_number = Helpers.get_VOC_data("test")
 
 base_model = VGG16(include_top=False)
 if stride == 16:
