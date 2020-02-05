@@ -39,4 +39,4 @@ for image_data in VOC_test_data:
     anchors = rpn.get_anchors(img, anchor_ratios, anchor_scales, stride)
     pred_bboxes, pred_labels = rpn.get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels)
     selected_bboxes, selected_labels = rpn.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=10)
-    Helpers.draw_anchors(img, selected_bboxes)
+    Helpers.draw_bboxes(img, selected_bboxes)

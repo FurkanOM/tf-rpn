@@ -70,12 +70,12 @@ def draw_grid_map(img, grid_map, stride):
     plt.imshow(image)
     plt.show()
 
-def draw_anchors(img, anchors):
-    new_img = tf.image.convert_image_dtype(img, dtype=tf.float32)
+def draw_bboxes(img, bboxes):
+    img_float32 = tf.image.convert_image_dtype(img, dtype=tf.float32)
     colors = tf.cast(np.array([[1, 0, 0, 1]] * 10), dtype=tf.float32)
     img_with_bounding_boxes = tf.image.draw_bounding_boxes(
-        np.expand_dims(new_img, axis=0),
-        np.expand_dims(anchors, axis=0),
+        np.expand_dims(img_float32, axis=0),
+        np.expand_dims(bboxes, axis=0),
         colors
     )
     plt.figure()
