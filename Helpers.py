@@ -70,15 +70,16 @@ def draw_grid_map(img, grid_map, stride):
     plt.imshow(image)
     plt.show()
 
-def draw_anchors(img, anchors, padding=200):
-    image = img_from_array(img)
-    padded_img = add_padding(image, padding, padding, padding, padding)
-    for anchor in anchors:
-        padded_anchor = anchor + padding
-        draw = ImageDraw.Draw(padded_img)
-        draw.rectangle(padded_anchor.tolist(), outline=(255, 0, 0))
+def draw_anchors(img, anchors):
+    new_img = tf.image.convert_image_dtype(img, dtype=tf.float32)
+    colors = tf.cast(np.array([[1, 0, 0, 1]] * 10), dtype=tf.float32)
+    img_with_bounding_boxes = tf.image.draw_bounding_boxes(
+        np.expand_dims(new_img, axis=0),
+        np.expand_dims(anchors, axis=0),
+        colors
+    )
     plt.figure()
-    plt.imshow(padded_img)
+    plt.imshow(img_with_bounding_boxes[0])
     plt.show()
 
 def resize_image(image, max_allowed_size):
