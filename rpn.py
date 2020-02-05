@@ -77,37 +77,36 @@ def get_bboxes_from_deltas(anchors, deltas):
 
 def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
     bbox_deltas = np.zeros(anchors.shape, dtype=np.float32)
-    for pos_anchor in pos_anchors:
-        index, gt_box_index = pos_anchor
-        anchor = anchors[index]
-        gt_box_data = gt_boxes[gt_box_index]
-        #
-        anc_width = anchor[3] - anchor[1]
-        anc_height = anchor[2] - anchor[0]
-        anc_ctr_x = anchor[1] + 0.5 * anc_width
-        anc_ctr_y = anchor[0] + 0.5 * anc_height
-        #
-        gt_width = gt_box_data[3] - gt_box_data[1]
-        gt_height = gt_box_data[2] - gt_box_data[0]
-        gt_ctr_x = gt_box_data[1] + 0.5 * gt_width
-        gt_ctr_y = gt_box_data[0] + 0.5 * gt_height
-        #
-        delta_x = (gt_ctr_x - anc_ctr_x) / anc_width
-        delta_y = (gt_ctr_y - anc_ctr_y) / anc_height
-        delta_w = np.log(gt_width / anc_width)
-        delta_h = np.log(gt_height / anc_height)
-        #
-        bbox_deltas[index] = [delta_y, delta_x, delta_h, delta_w]
+    anchor_indices, gt_indices = pos_anchors[:, 0], pos_anchors[:, 1]
+    #
+    anc_width = anchors[anchor_indices, 3] - anchors[anchor_indices, 1]
+    anc_height = anchors[anchor_indices, 2] - anchors[anchor_indices, 0]
+    anc_ctr_x = anchors[anchor_indices, 1] + 0.5 * anc_width
+    anc_ctr_y = anchors[anchor_indices, 0] + 0.5 * anc_height
+    #
+    gt_width = gt_boxes[gt_indices, 3] - gt_boxes[gt_indices, 1]
+    gt_height = gt_boxes[gt_indices, 2] - gt_boxes[gt_indices, 0]
+    gt_ctr_x = gt_boxes[gt_indices, 1] + 0.5 * gt_width
+    gt_ctr_y = gt_boxes[gt_indices, 0] + 0.5 * gt_height
+    #
+    delta_x = (gt_ctr_x - anc_ctr_x) / anc_width
+    delta_y = (gt_ctr_y - anc_ctr_y) / anc_height
+    delta_w = np.log(gt_width / anc_width)
+    delta_h = np.log(gt_height / anc_height)
+    #
+    bbox_deltas[anchor_indices, 0] = delta_y
+    bbox_deltas[anchor_indices, 1] = delta_x
+    bbox_deltas[anchor_indices, 2] = delta_h
+    bbox_deltas[anchor_indices, 3] = delta_w
     #
     return bbox_deltas
 
 def get_labels_from_bboxes(anchors, gt_labels, pos_anchors, total_label_number):
     labels = np.zeros((anchors.shape[0], total_label_number+1), dtype=np.int32)
     labels[:, -1] = 1
-    for pos_anchor in pos_anchors:
-        index, gt_label_index = pos_anchor
-        labels[index, gt_labels[gt_label_index]] = 1
-        labels[index, -1] = 0
+    anchor_indices, gt_indices = pos_anchors[:, 0], pos_anchors[:, 1]
+    labels[anchor_indices, gt_labels[gt_indices]] = 1
+    labels[anchor_indices, -1] = 0
     return labels
 
 def faster_rcnn_cls_loss(y_true, y_pred):

@@ -35,7 +35,7 @@ model_path = Helpers.get_model_path(stride)
 rpn_model = rpn.get_model(base_model, anchor_count)
 if load_weights:
     rpn_model.load_weights(model_path)
-rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.000001),
+rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.00001),
                   loss=[rpn.rpn_reg_loss, rpn.rpn_cls_loss],
                   loss_weights=[10., 1.])
 
