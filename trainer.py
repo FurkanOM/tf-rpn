@@ -31,12 +31,12 @@ base_model = VGG16(include_top=False, weights="imagenet")
 if stride == 16:
     base_model = Sequential(base_model.layers[:-1])
 
-model_path = Helpers.get_model_path(stride)
+model_path = rpn.get_model_path(stride)
 rpn_model = rpn.get_model(base_model, anchor_count)
 if load_weights:
     rpn_model.load_weights(model_path)
 rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.00001),
-                  loss=[rpn.rpn_reg_loss, rpn.rpn_cls_loss],
+                  loss=[rpn.reg_loss, rpn.cls_loss],
                   loss_weights=[10., 1.])
 
 model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True, monitor="val_loss", mode="auto")
