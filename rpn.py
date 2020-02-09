@@ -3,7 +3,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.models import Model
 import numpy as np
-import Helpers
+import helpers
 
 def cls_loss(y_true, y_pred):
     indices = tf.where(tf.not_equal(y_true, -1))
@@ -19,32 +19,6 @@ def reg_loss(y_true, y_pred):
     # Same with the smooth l1 loss
     lf = tf.losses.Huber()
     return tf.reduce_mean(lf(target, output))
-
-def get_image_params(img, stride):
-    height, width, _ = img.shape
-    output_height, output_width = height // stride, width // stride
-    return height, width, output_height, output_width
-
-def update_gt_boxes(gt_boxes, img_height, img_width, padding):
-    padded_height = img_height + padding["top"] + padding["bottom"]
-    padded_width = img_width + padding["left"] + padding["right"]
-    gt_boxes[:, 0] = (np.round(gt_boxes[:, 0] * img_height) + padding["top"]) / padded_height
-    gt_boxes[:, 1] = (np.round(gt_boxes[:, 1] * img_width) + padding["left"]) / padded_width
-    gt_boxes[:, 2] = (np.round(gt_boxes[:, 2] * img_height) + padding["top"]) / padded_height
-    gt_boxes[:, 3] = (np.round(gt_boxes[:, 3] * img_width) + padding["left"]) / padded_width
-    return gt_boxes
-
-def get_input_img(img, input_processor):
-    processed_img = input_processor(img)
-    return np.expand_dims(processed_img, axis=0)
-
-def normalize_bboxes(bboxes, height, width):
-    new_bboxes = np.zeros(bboxes.shape, dtype=np.float32)
-    new_bboxes[:, 0] = bboxes[:, 0] / height
-    new_bboxes[:, 1] = bboxes[:, 1] / width
-    new_bboxes[:, 2] = bboxes[:, 2] / height
-    new_bboxes[:, 3] = bboxes[:, 3] / width
-    return new_bboxes
 
 def generate_base_anchors(stride, ratios, scales):
     center = stride // 2
@@ -82,7 +56,7 @@ def get_anchors(img_params, anchor_ratios, anchor_scales, stride):
     anchors = base_anchors.reshape((1, anchor_count, 4)) + \
               grid_map.reshape((1, output_area, 4)).transpose((1, 0, 2))
     anchors = anchors.reshape((output_area * anchor_count, 4)).astype(np.float32)
-    anchors = normalize_bboxes(anchors, height, width)
+    anchors = helpers.normalize_bboxes(anchors, height, width)
     return anchors
 
 def get_bbox_deltas_and_labels(img_params, anchors, gt_boxes, anchor_count, stride, img_boundaries):
@@ -91,18 +65,18 @@ def get_bbox_deltas_and_labels(img_params, anchors, gt_boxes, anchor_count, stri
     # Positive and negative anchors calculation
     #############################
     # Positive and negative anchor numbers are 128 in original paper
-    pos_anchors, neg_anchors = Helpers.get_positive_and_negative_anchors(anchors, gt_boxes, total_pos_anchor_number=64)
+    pos_bbox_indices, neg_bbox_indices = helpers.get_positive_and_negative_bbox_indices(anchors, gt_boxes, total_pos_bbox_number=64)
     #############################
     # Bbox delta calculation
     #############################
-    bbox_deltas = Helpers.get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors)
+    bbox_deltas = helpers.get_deltas_from_bboxes(anchors, gt_boxes, pos_bbox_indices)
     #############################
     # Label calculation
     #############################
     # labels => 1 object, 0 background, -1 neutral
     labels = -1 * np.ones((anchors.shape[0], ), dtype=np.float32)
-    labels[neg_anchors] = 0
-    labels[pos_anchors[:,0]] = 1
+    labels[neg_bbox_indices] = 0
+    labels[pos_bbox_indices[:,0]] = 1
     ############################################################
     bbox_deltas = bbox_deltas.reshape(output_height, output_width, anchor_count * 4)
     labels = labels.reshape(output_height, output_width, anchor_count)
@@ -141,17 +115,17 @@ def generator(data,
 def get_step_data(image_data, anchor_ratios, anchor_scales, stride, input_processor, max_height, max_width, apply_padding):
     img = image_data["image"].numpy()
     img_height, img_width, _ = img.shape
-    img_boundaries = Helpers.get_image_boundaries(img_height, img_width)
+    img_boundaries = helpers.get_image_boundaries(img_height, img_width)
     gt_boxes = image_data["objects"]["bbox"].numpy()
     if apply_padding:
-        img, padding = Helpers.get_padded_img(img, max_height, max_width)
-        gt_boxes = update_gt_boxes(gt_boxes, img_height, img_width, padding)
-        img_boundaries = Helpers.update_image_boundaries_with_padding(img_boundaries, padding)
-    img_params = get_image_params(img, stride)
+        img, padding = helpers.get_padded_img(img, max_height, max_width)
+        gt_boxes = helpers.update_gt_boxes(gt_boxes, img_height, img_width, padding)
+        img_boundaries = helpers.update_image_boundaries_with_padding(img_boundaries, padding)
+    img_params = helpers.get_image_params(img, stride)
     anchors = get_anchors(img_params, anchor_ratios, anchor_scales, stride)
     anchor_count = len(anchor_ratios) * len(anchor_scales)
     actual_bbox_deltas, actual_labels = get_bbox_deltas_and_labels(img_params, anchors, gt_boxes, anchor_count, stride, img_boundaries)
-    input_img = get_input_img(img, input_processor)
+    input_img = helpers.get_input_img(img, input_processor)
     input, outputs = get_input_output(input_img, actual_bbox_deltas, actual_labels)
     return input, outputs, anchors, gt_boxes
 

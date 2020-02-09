@@ -22,10 +22,6 @@ def get_VOC_data(split):
     data_len = info.splits[split].num_examples
     return dataset, data_len, class_len
 
-def get_image(path, as_array=False):
-    image = Image.open(path)
-    return array_from_img(image) if as_array else image
-
 def get_image_boundaries(height, width):
     return {
         "top": 0,
@@ -34,105 +30,104 @@ def get_image_boundaries(height, width):
         "bottom": height
     }
 
-def calculate_iou(anc, gt):
+def update_image_boundaries_with_padding(img_boundaries, padding):
+    img_boundaries["top"] = padding["top"]
+    img_boundaries["left"] = padding["left"]
+    img_boundaries["bottom"] += padding["top"]
+    img_boundaries["right"] += padding["left"]
+    return img_boundaries
+
+def calculate_iou(bboxes, gt):
     ### Ground truth box normalized y1, x1, y2, x2
     gt_y1, gt_x1, gt_y2, gt_x2 = gt
     gt_width = gt_x2 - gt_x1
     gt_height = gt_y2 - gt_y1
     gt_area = gt_width * gt_height
-    ### Anchor normalized y1, x1, y2, x2
-    anc_y1, anc_x1, anc_y2, anc_x2 = anc
-    anc_width = anc_x2 - anc_x1
-    anc_height = anc_y2 - anc_y1
-    anc_area = anc_width * anc_height
+    ### bbox normalized y1, x1, y2, x2
+    bbox_y1, bbox_x1, bbox_y2, bbox_x2 = bboxes[:, 0], bboxes[:, 1], bboxes[:, 2], bboxes[:, 3]
+    bbox_width = bbox_x2 - bbox_x1
+    bbox_height = bbox_y2 - bbox_y1
+    bbox_area = bbox_width * bbox_height
     ### Possible intersection
-    x_top = max(gt_x1, anc_x1)
-    y_top = max(gt_y1, anc_y1)
-    x_bottom = min(gt_x2, anc_x2)
-    y_bottom = min(gt_y2, anc_y2)
-    ### Check intersection
-    if x_bottom < x_top or y_bottom < y_top:
-        return 0.0
+    x_top = np.maximum(gt_x1, bbox_x1)
+    y_top = np.maximum(gt_y1, bbox_y1)
+    x_bottom = np.minimum(gt_x2, bbox_x2)
+    y_bottom = np.minimum(gt_y2, bbox_y2)
     ### Calculate intersection area
-    intersection_area = (x_bottom - x_top) * (y_bottom - y_top)
+    intersection_area = np.maximum(x_bottom - x_top, 0) * np.maximum(y_bottom - y_top, 0)
     ### Calculate union area
-    union_area = gt_area + anc_area - intersection_area
+    union_area = gt_area + bbox_area - intersection_area
     # Intersection over Union
     return intersection_area / union_area
 
-def generate_iou_map(anchors, gt_boxes):
-    anchor_count = anchors.shape[0]
+def generate_iou_map(bboxes, gt_boxes):
+    bbox_count = bboxes.shape[0]
     gt_box_count = gt_boxes.shape[0]
-    iou_map = np.zeros((anchor_count, gt_box_count), dtype=np.float32)
-    for anc_index, anchor in enumerate(anchors):
-        for gt_index, gt_box_data in enumerate(gt_boxes):
-            iou = calculate_iou(anchor, gt_box_data)
-            iou_map[anc_index, gt_index] = iou
+    iou_map = np.zeros((bbox_count, gt_box_count), dtype=np.float32)
+    for gt_index, gt_box in enumerate(gt_boxes):
+        iou = calculate_iou(bboxes, gt_box)
+        iou_map[:, gt_index] = iou
     return iou_map
 
-def get_positive_and_negative_anchors(anchors, gt_boxes, total_pos_anchor_number=64):
-    iou_map = generate_iou_map(anchors, gt_boxes)
+def get_positive_and_negative_bbox_indices(bboxes, gt_boxes, total_pos_bbox_number=64):
+    iou_map = generate_iou_map(bboxes, gt_boxes)
     # any time => iou_map.reshape(output_height, output_width, anchor_count, gt_boxes.shape[0])
     ################################################################
-    total_gt_box_count = gt_boxes.shape[0]
     max_indices_each_gt_box = iou_map.argmax(axis=1)
     # IoU map has iou values for every gt boxes and we merge these values column wise
-    merged_iou_map = iou_map[np.arange(iou_map.shape[0]), max_indices_each_gt_box]
+    merged_iou_map = np.max(iou_map, axis=1)
     masked_merged_iou_map = np.ma.array(merged_iou_map, mask=False)
-    # First we calculate max overlapped box for every ground truth box
-    for n_col in range(total_gt_box_count):
-        anchor_indices_for_gt_box = np.where(max_indices_each_gt_box == n_col)[0]
-        if anchor_indices_for_gt_box.shape[0] == 0:
-            continue
-        max_anchor_index_for_gt_box = iou_map[:, n_col].argmax()
-        masked_merged_iou_map.mask[max_anchor_index_for_gt_box] = True
-    #
+    # Get max index for every column / gt boxes
+    max_indices = iou_map.argmax(axis=0)
+    max_indices_each_gt_box[max_indices] = np.arange(max_indices.shape[0])
+    # We mask max indices and therefore these values placed front of the sorted maps
+    masked_merged_iou_map.mask[max_indices] = True
     sorted_iou_map = masked_merged_iou_map.argsort()[::-1]
-    sorted_anchor_indices = sorted_iou_map[:total_pos_anchor_number]
+    sorted_bbox_indices = sorted_iou_map[:total_pos_bbox_number]
     # We finalize pos anchors with max n anchors
-    pos_anchors = np.array((sorted_anchor_indices, max_indices_each_gt_box[sorted_anchor_indices]), dtype=np.int32).transpose()
+    pos_bbox_indices = np.array((sorted_bbox_indices, max_indices_each_gt_box[sorted_bbox_indices]), dtype=np.int32).transpose()
     ##########
-    neg_anchors = np.where(masked_merged_iou_map < 0.3)[0]
-    neg_anchors = neg_anchors[~np.isin(neg_anchors, pos_anchors[:,0])]
-    neg_anchors_count = len(neg_anchors)
-    pos_anchors_count = len(pos_anchors[:,0])
+    neg_bbox_indices = np.where(masked_merged_iou_map < 0.3)[0]
+    neg_bbox_indices = neg_bbox_indices[~np.isin(neg_bbox_indices, pos_bbox_indices[:,0])]
+    neg_bbox_indices_count = neg_bbox_indices.shape[0]
+    pos_bbox_indices_count = pos_bbox_indices[:,0].shape[0]
     # If there are more negative anchors than positive
     # randomly select negative anchors as many as positive anchor number
-    if neg_anchors_count > pos_anchors_count:
-        neg_anchors = np.random.choice(neg_anchors, size=pos_anchors_count, replace=False)
+    if neg_bbox_indices_count > pos_bbox_indices_count:
+        neg_bbox_indices = np.random.choice(neg_bbox_indices, size=pos_bbox_indices_count, replace=False)
     #
-    return pos_anchors, neg_anchors
+    return pos_bbox_indices, neg_bbox_indices
 
-def get_deltas_from_bboxes(anchors, gt_boxes, pos_anchors):
-    bbox_deltas = np.zeros(anchors.shape, dtype=np.float32)
-    anchor_indices, gt_indices = pos_anchors[:, 0], pos_anchors[:, 1]
+def get_deltas_from_bboxes(bboxes, gt_boxes, pos_bbox_indices):
+    bbox_deltas = np.zeros(bboxes.shape, dtype=np.float32)
+    bbox_indices, gt_indices = pos_bbox_indices[:, 0], pos_bbox_indices[:, 1]
     #
-    anc_width = anchors[anchor_indices, 3] - anchors[anchor_indices, 1] + 1e-7
-    anc_height = anchors[anchor_indices, 2] - anchors[anchor_indices, 0] + 1e-7
-    anc_ctr_x = anchors[anchor_indices, 1] + 0.5 * anc_width
-    anc_ctr_y = anchors[anchor_indices, 0] + 0.5 * anc_height
+    bbox_width = bboxes[bbox_indices, 3] - bboxes[bbox_indices, 1] + 1e-7
+    bbox_height = bboxes[bbox_indices, 2] - bboxes[bbox_indices, 0] + 1e-7
+    bbox_ctr_x = bboxes[bbox_indices, 1] + 0.5 * bbox_width
+    bbox_ctr_y = bboxes[bbox_indices, 0] + 0.5 * bbox_height
     #
     gt_width = gt_boxes[gt_indices, 3] - gt_boxes[gt_indices, 1]
     gt_height = gt_boxes[gt_indices, 2] - gt_boxes[gt_indices, 0]
     gt_ctr_x = gt_boxes[gt_indices, 1] + 0.5 * gt_width
     gt_ctr_y = gt_boxes[gt_indices, 0] + 0.5 * gt_height
     #
-    delta_x = (gt_ctr_x - anc_ctr_x) / anc_width
-    delta_y = (gt_ctr_y - anc_ctr_y) / anc_height
-    delta_w = np.log(gt_width / anc_width)
-    delta_h = np.log(gt_height / anc_height)
+    delta_x = (gt_ctr_x - bbox_ctr_x) / bbox_width
+    delta_y = (gt_ctr_y - bbox_ctr_y) / bbox_height
+    delta_w = np.log(gt_width / bbox_width)
+    delta_h = np.log(gt_height / bbox_height)
     #
-    bbox_deltas[anchor_indices, 0] = delta_y
-    bbox_deltas[anchor_indices, 1] = delta_x
-    bbox_deltas[anchor_indices, 2] = delta_h
-    bbox_deltas[anchor_indices, 3] = delta_w
+    bbox_deltas[bbox_indices, 0] = delta_y
+    bbox_deltas[bbox_indices, 1] = delta_x
+    bbox_deltas[bbox_indices, 2] = delta_h
+    bbox_deltas[bbox_indices, 3] = delta_w
     #
     return bbox_deltas
 
 def non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=300):
-    selected_indices = tf.image.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes)
-    selected_boxes = tf.gather(pred_bboxes, selected_indices)
-    return selected_boxes.numpy()
+    nms_indices = tf.image.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes)
+    nms_bboxes = tf.gather(pred_bboxes, nms_indices)
+    return nms_bboxes.numpy()
 
 def get_bboxes_from_deltas(anchors, deltas):
     bboxes = np.zeros(anchors.shape, dtype=np.float32)
@@ -162,12 +157,31 @@ def get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pre
     pred_bboxes = get_bboxes_from_deltas(anchors, pred_bbox_deltas)
     return pred_bboxes, pred_labels
 
-def update_image_boundaries_with_padding(img_boundaries, padding):
-    img_boundaries["top"] = padding["top"]
-    img_boundaries["left"] = padding["left"]
-    img_boundaries["bottom"] += padding["top"]
-    img_boundaries["right"] += padding["left"]
-    return img_boundaries
+def get_input_img(img, input_processor):
+    processed_img = input_processor(img)
+    return np.expand_dims(processed_img, axis=0)
+
+def get_image_params(img, stride):
+    height, width, _ = img.shape
+    output_height, output_width = height // stride, width // stride
+    return height, width, output_height, output_width
+
+def normalize_bboxes(bboxes, height, width):
+    new_bboxes = np.zeros(bboxes.shape, dtype=np.float32)
+    new_bboxes[:, 0] = bboxes[:, 0] / height
+    new_bboxes[:, 1] = bboxes[:, 1] / width
+    new_bboxes[:, 2] = bboxes[:, 2] / height
+    new_bboxes[:, 3] = bboxes[:, 3] / width
+    return new_bboxes
+
+def update_gt_boxes(gt_boxes, img_height, img_width, padding):
+    padded_height = img_height + padding["top"] + padding["bottom"]
+    padded_width = img_width + padding["left"] + padding["right"]
+    gt_boxes[:, 0] = (np.round(gt_boxes[:, 0] * img_height) + padding["top"]) / padded_height
+    gt_boxes[:, 1] = (np.round(gt_boxes[:, 1] * img_width) + padding["left"]) / padded_width
+    gt_boxes[:, 2] = (np.round(gt_boxes[:, 2] * img_height) + padding["top"]) / padded_height
+    gt_boxes[:, 3] = (np.round(gt_boxes[:, 3] * img_width) + padding["left"]) / padded_width
+    return gt_boxes
 
 def img_from_array(array):
     return Image.fromarray(array)
@@ -214,15 +228,6 @@ def resize_image(image, max_allowed_size):
             new_height = int(round(new_width * (height / width)))
         image = image.resize((new_width, new_height), Image.ANTIALIAS)
     return image
-
-# image param => pillow image
-def add_padding(image, top, right, bottom, left):
-    width, height = image.size
-    new_width = width + left + right
-    new_height = height + top + bottom
-    result = Image.new(image.mode, (new_width, new_height), (0, 0, 0))
-    result.paste(image, (left, top))
-    return result
 
 def get_padding(img_height, img_width, max_height, max_width):
     assert img_height <= max_height

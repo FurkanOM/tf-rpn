@@ -2,12 +2,12 @@ import tensorflow as tf
 from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.models import load_model, Sequential
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-import Helpers
+import helpers
 import rpn
 
-args = Helpers.handle_args()
+args = helpers.handle_args()
 if args.handle_gpu:
-    Helpers.handle_gpu_compatibility()
+    helpers.handle_gpu_compatibility()
 
 anchor_ratios = [0.5, 1, 2]
 anchor_scales = [16, 32, 64, 128, 256]
@@ -15,10 +15,10 @@ anchor_count = len(anchor_ratios) * len(anchor_scales)
 stride = vgg16_stride = 32
 # If you want to use different dataset and don't know max height and width values
 # You can use calculate_max_height_width method in helpers
-max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
+max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
 apply_padding = True
 
-VOC_test_data, _, total_class_number = Helpers.get_VOC_data("test")
+VOC_test_data, _, total_class_number = helpers.get_VOC_data("test")
 
 base_model = VGG16(include_top=False)
 if stride == 16:
@@ -31,14 +31,14 @@ rpn_model.load_weights(model_path)
 for image_data in VOC_test_data:
     img = image_data["image"].numpy()
     img_height, img_width, _ = img.shape
-    img_boundaries = Helpers.get_image_boundaries(img_height, img_width)
+    img_boundaries = helpers.get_image_boundaries(img_height, img_width)
     if apply_padding:
-        img, padding = Helpers.get_padded_img(img, max_height, max_width)
-        img_boundaries = Helpers.update_image_boundaries_with_padding(img_boundaries, padding)
-    input_img = rpn.get_input_img(img, preprocess_input)
+        img, padding = helpers.get_padded_img(img, max_height, max_width)
+        img_boundaries = helpers.update_image_boundaries_with_padding(img_boundaries, padding)
+    input_img = helpers.get_input_img(img, preprocess_input)
     pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
-    img_params = rpn.get_image_params(img, stride)
+    img_params = helpers.get_image_params(img, stride)
     anchors = rpn.get_anchors(img_params, anchor_ratios, anchor_scales, stride)
-    pred_bboxes, pred_labels = Helpers.get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels)
-    selected_bboxes = Helpers.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=10)
-    Helpers.draw_bboxes(img, selected_bboxes)
+    pred_bboxes, pred_labels = helpers.get_predicted_bboxes_and_labels(anchor_count, anchors, pred_bbox_deltas, pred_labels)
+    selected_bboxes = helpers.non_max_suppression(pred_bboxes, pred_labels, top_n_boxes=10)
+    helpers.draw_bboxes(img, selected_bboxes)

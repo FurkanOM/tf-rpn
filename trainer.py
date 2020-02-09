@@ -2,12 +2,12 @@ import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-import Helpers
+import helpers
 import rpn
 
-args = Helpers.handle_args()
+args = helpers.handle_args()
 if args.handle_gpu:
-    Helpers.handle_gpu_compatibility()
+    helpers.handle_gpu_compatibility()
 
 epochs = 100
 batch_size = 2
@@ -17,12 +17,12 @@ anchor_count = len(anchor_ratios) * len(anchor_scales)
 stride = vgg16_stride = 32
 # If you want to use different dataset and don't know max height and width values
 # You can use calculate_max_height_width method in helpers
-max_height, max_width = Helpers.VOC["max_height"], Helpers.VOC["max_width"]
+max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
 apply_padding = True
 load_weights = False
 
-VOC_train_data, VOC_train_data_len, _ = Helpers.get_VOC_data("train")
-VOC_val_data, VOC_val_data_len, _ = Helpers.get_VOC_data("validation")
+VOC_train_data, VOC_train_data_len, _ = helpers.get_VOC_data("train")
+VOC_val_data, VOC_val_data_len, _ = helpers.get_VOC_data("validation")
 
 rpn_train_feed = rpn.generator(VOC_train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
 rpn_val_feed = rpn.generator(VOC_val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
