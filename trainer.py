@@ -10,38 +10,46 @@ if args.handle_gpu:
     helpers.handle_gpu_compatibility()
 
 epochs = 100
-batch_size = 2
-anchor_ratios = [0.5, 1, 2]
-anchor_scales = [16, 32, 64, 128, 256]
-anchor_count = len(anchor_ratios) * len(anchor_scales)
-stride = vgg16_stride = 32
-# If you want to use different dataset and don't know max height and width values
-# You can use calculate_max_height_width method in helpers
-max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
 apply_padding = True
 load_weights = False
-
-VOC_train_data, VOC_train_data_len, _ = helpers.get_VOC_data("train")
-VOC_val_data, VOC_val_data_len, _ = helpers.get_VOC_data("validation")
-
-rpn_train_feed = rpn.generator(VOC_train_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
-rpn_val_feed = rpn.generator(VOC_val_data, anchor_ratios, anchor_scales, stride, preprocess_input, max_height=max_height, max_width=max_width, apply_padding=apply_padding)
+hyper_params = {
+    "anchor_ratios": [0.5, 1, 2],
+    "anchor_scales": [16, 32, 64, 128, 256],
+    "stride": 32,
+    "nms_topn": 300,
+    "total_pos_bboxes": 64,
+}
+hyper_params["anchor_count"] = len(hyper_params["anchor_ratios"]) * len(hyper_params["anchor_scales"])
 
 base_model = VGG16(include_top=False, weights="imagenet")
-if stride == 16:
+if hyper_params["stride"] == 16:
     base_model = Sequential(base_model.layers[:-1])
 
-model_path = rpn.get_model_path(stride)
-rpn_model = rpn.get_model(base_model, anchor_count)
+model_path = rpn.get_model_path(hyper_params["stride"])
+rpn_model = rpn.get_model(base_model, hyper_params)
 if load_weights:
     rpn_model.load_weights(model_path)
 rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.00001),
                   loss=[rpn.reg_loss, rpn.cls_loss],
                   loss_weights=[10., 1.])
 
+VOC_train_data, VOC_train_data_len, _ = helpers.get_VOC_data("train")
+VOC_val_data, VOC_val_data_len, _ = helpers.get_VOC_data("validation")
+
+if apply_padding:
+    # If you want to use different dataset and don't know max height and width values
+    # You can use calculate_max_height_width method in helpers
+    max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
+    VOC_train_data = VOC_train_data.map(lambda x : helpers.handle_padding(x, max_height, max_width))
+    VOC_val_data = VOC_val_data.map(lambda x : helpers.handle_padding(x, max_height, max_width))
+
+rpn_train_feed = rpn.generator(VOC_train_data, hyper_params, preprocess_input)
+rpn_val_feed = rpn.generator(VOC_val_data, hyper_params, preprocess_input)
+
 model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True, monitor="val_loss", mode="auto")
 early_stopping = EarlyStopping(monitor="val_loss", patience=20, verbose=0, mode="auto")
-
+# Batch size different from 1 not supported yet
+batch_size = 1
 step_size_train = VOC_train_data_len // batch_size
 step_size_val = VOC_val_data_len // batch_size
 rpn_model.fit_generator(generator=rpn_train_feed,

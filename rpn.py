@@ -20,11 +20,14 @@ def reg_loss(y_true, y_pred):
     lf = tf.losses.Huber()
     return tf.reduce_mean(lf(target, output))
 
-def generate_base_anchors(stride, ratios, scales):
+def generate_base_anchors(hyper_params):
+    stride = hyper_params["stride"]
+    anchor_ratios = hyper_params["anchor_ratios"]
+    anchor_scales = hyper_params["anchor_scales"]
     center = stride // 2
     base_anchors = []
-    for scale in scales:
-        for ratio in ratios:
+    for scale in anchor_scales:
+        for ratio in anchor_ratios:
             box_area = scale ** 2
             w = round((box_area / ratio) ** 0.5)
             h = round(w * ratio)
@@ -35,8 +38,9 @@ def generate_base_anchors(stride, ratios, scales):
             base_anchors.append([y_min, x_min, y_max, x_max])
     return np.array(base_anchors, dtype=np.float32)
 
-def get_anchors(img_params, anchor_ratios, anchor_scales, stride):
-    anchor_count = len(anchor_ratios) * len(anchor_scales)
+def generate_anchors(img_params, hyper_params):
+    anchor_count = hyper_params["anchor_count"]
+    stride = hyper_params["stride"]
     height, width, output_height, output_width = img_params
     #
     grid_x = np.arange(0, output_width) * stride
@@ -50,7 +54,7 @@ def get_anchors(img_params, anchor_ratios, anchor_scales, stride):
     grid_y, grid_x = np.meshgrid(grid_y, grid_x)
     grid_map = np.vstack((grid_y.ravel(), grid_x.ravel(), grid_y.ravel(), grid_x.ravel())).transpose()
     #
-    base_anchors = generate_base_anchors(stride, anchor_ratios, anchor_scales)
+    base_anchors = generate_base_anchors(hyper_params)
     #
     output_area = grid_map.shape[0]
     anchors = base_anchors.reshape((1, anchor_count, 4)) + \
@@ -59,80 +63,57 @@ def get_anchors(img_params, anchor_ratios, anchor_scales, stride):
     anchors = helpers.normalize_bboxes(anchors, height, width)
     return anchors
 
-def get_bbox_deltas_and_labels(img_params, anchors, gt_boxes, anchor_count, stride, img_boundaries):
+def get_bbox_deltas_and_labels(anchors, gt_boxes, hyper_params, img_params):
+    anchor_count = hyper_params["anchor_count"]
     height, width, output_height, output_width = img_params
     #############################
     # Positive and negative anchors calculation
     #############################
     # Positive and negative anchor numbers are 128 in original paper
-    pos_bbox_indices, neg_bbox_indices = helpers.get_positive_and_negative_bbox_indices(anchors, gt_boxes, total_pos_bbox_number=64)
+    pos_bbox_indices, neg_bbox_indices, gt_box_indices = helpers.get_selected_indices([anchors, gt_boxes, hyper_params["total_pos_bboxes"]])
     #############################
     # Bbox delta calculation
     #############################
-    bbox_deltas = helpers.get_deltas_from_bboxes(anchors, gt_boxes, pos_bbox_indices)
+    pos_gt_boxes_map = tf.gather(gt_boxes, gt_box_indices)
+    final_gt_boxes = tf.scatter_nd(tf.expand_dims(pos_bbox_indices, 1), pos_gt_boxes_map, tf.shape(anchors))
+    bbox_deltas = helpers.get_deltas_from_bboxes(anchors, final_gt_boxes)
     #############################
     # Label calculation
     #############################
     # labels => 1 object, 0 background, -1 neutral
     labels = -1 * np.ones((anchors.shape[0], ), dtype=np.float32)
     labels[neg_bbox_indices] = 0
-    labels[pos_bbox_indices[:,0]] = 1
+    labels[pos_bbox_indices] = 1
     ############################################################
-    bbox_deltas = bbox_deltas.reshape(output_height, output_width, anchor_count * 4)
-    labels = labels.reshape(output_height, output_width, anchor_count)
+    bbox_deltas = tf.reshape(bbox_deltas, (output_height, output_width, anchor_count * 4))
+    labels = tf.reshape(labels, (output_height, output_width, anchor_count))
     return bbox_deltas, labels
 
-def get_input_output(img, bbox_deltas, labels):
-    input = img
+def generator(data, hyper_params, input_processor):
+    while True:
+        for image_data in data:
+            input_img, img_params, gt_boxes, _ = helpers.preprocessing(image_data, hyper_params, input_processor)
+            input, outputs, _ = get_step_data(input_img, img_params, gt_boxes, hyper_params)
+            yield input, outputs
+
+def get_input_output(input_img, bbox_deltas, labels):
+    input = input_img
     outputs = [
         np.expand_dims(bbox_deltas, axis=0),
         np.expand_dims(labels, axis=0)
     ]
     return input, outputs
 
-def generator(data,
-              anchor_ratios,
-              anchor_scales,
-              stride,
-              input_processor,
-              max_height=None,
-              max_width=None,
-              apply_padding=False):
-    while True:
-        for image_data in data:
-            input, outputs, _, _ = get_step_data(
-                image_data,
-                anchor_ratios,
-                anchor_scales,
-                stride,
-                input_processor,
-                max_height,
-                max_width,
-                apply_padding
-            )
-            yield input, outputs
-
-def get_step_data(image_data, anchor_ratios, anchor_scales, stride, input_processor, max_height, max_width, apply_padding):
-    img = image_data["image"].numpy()
-    img_height, img_width, _ = img.shape
-    img_boundaries = helpers.get_image_boundaries(img_height, img_width)
-    gt_boxes = image_data["objects"]["bbox"].numpy()
-    if apply_padding:
-        img, padding = helpers.get_padded_img(img, max_height, max_width)
-        gt_boxes = helpers.update_gt_boxes(gt_boxes, img_height, img_width, padding)
-        img_boundaries = helpers.update_image_boundaries_with_padding(img_boundaries, padding)
-    img_params = helpers.get_image_params(img, stride)
-    anchors = get_anchors(img_params, anchor_ratios, anchor_scales, stride)
-    anchor_count = len(anchor_ratios) * len(anchor_scales)
-    actual_bbox_deltas, actual_labels = get_bbox_deltas_and_labels(img_params, anchors, gt_boxes, anchor_count, stride, img_boundaries)
-    input_img = helpers.get_input_img(img, input_processor)
+def get_step_data(input_img, img_params, gt_boxes, hyper_params):
+    anchors = generate_anchors(img_params, hyper_params)
+    actual_bbox_deltas, actual_labels = get_bbox_deltas_and_labels(anchors, gt_boxes, hyper_params, img_params)
     input, outputs = get_input_output(input_img, actual_bbox_deltas, actual_labels)
-    return input, outputs, anchors, gt_boxes
+    return input, outputs, anchors
 
-def get_model(base_model, anchor_count):
+def get_model(base_model, hyper_params):
     output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)
-    rpn_cls_output = Conv2D(anchor_count, (1, 1), activation="sigmoid", name="rpn_cls")(output)
-    rpn_reg_output = Conv2D(anchor_count * 4, (1, 1), activation="linear", name="rpn_reg")(output)
+    rpn_cls_output = Conv2D(hyper_params["anchor_count"], (1, 1), activation="sigmoid", name="rpn_cls")(output)
+    rpn_reg_output = Conv2D(hyper_params["anchor_count"] * 4, (1, 1), activation="linear", name="rpn_reg")(output)
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
     return rpn_model
 
@@ -140,5 +121,5 @@ def get_model_path(stride):
     main_path = "models"
     if not os.path.exists(main_path):
         os.makedirs(main_path)
-    model_path = os.path.join(main_path, "stride_" + str(stride) + "_rpn_model_weights.h5")
+    model_path = os.path.join(main_path, "stride_{0}_rpn_model_weights.h5".format(stride))
     return model_path
