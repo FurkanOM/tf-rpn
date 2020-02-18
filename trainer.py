@@ -55,9 +55,9 @@ early_stopping = EarlyStopping(monitor="val_loss", patience=20, verbose=0, mode=
 
 step_size_train = VOC_train_data_len // batch_size
 step_size_val = VOC_val_data_len // batch_size
-rpn_model.fit_generator(generator=rpn_train_feed,
-                        steps_per_epoch=step_size_train,
-                        validation_data=rpn_val_feed,
-                        validation_steps=step_size_val,
-                        epochs=epochs,
-                        callbacks=[early_stopping, model_checkpoint])
+rpn_model.fit(rpn_train_feed,
+              steps_per_epoch=step_size_train,
+              validation_data=rpn_val_feed,
+              validation_steps=step_size_val,
+              epochs=epochs,
+              callbacks=[early_stopping, model_checkpoint])

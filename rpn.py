@@ -67,7 +67,7 @@ def generator(dataset, hyper_params, input_processor):
     while True:
         for image_data in dataset:
             input_img, bbox_deltas, bbox_labels, _ = get_step_data(image_data, hyper_params, input_processor)
-            yield input_img, [bbox_deltas, bbox_labels]
+            yield input_img, (bbox_deltas, bbox_labels)
 
 def get_step_data(image_data, hyper_params, input_processor, mode="training"):
     img, gt_boxes, gt_labels = image_data
