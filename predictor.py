@@ -9,13 +9,14 @@ args = helpers.handle_args()
 if args.handle_gpu:
     helpers.handle_gpu_compatibility()
 
-apply_padding = True
+batch_size = 1
 hyper_params = {
     "anchor_ratios": [0.5, 1, 2],
     "anchor_scales": [16, 32, 64, 128, 256],
     "stride": 32,
     "nms_topn": 10,
     "total_pos_bboxes": 64,
+    "total_neg_bboxes": 64,
 }
 hyper_params["anchor_count"] = len(hyper_params["anchor_ratios"]) * len(hyper_params["anchor_scales"])
 
@@ -28,21 +29,30 @@ rpn_model = rpn.get_model(base_model, hyper_params)
 rpn_model.load_weights(model_path)
 
 VOC_test_data, _, hyper_params["total_labels"] = helpers.get_VOC_data("test")
+# We add 1 class for background
 hyper_params["total_labels"] += 1
 
-if apply_padding:
-    # If you want to use different dataset and don't know max height and width values
-    # You can use calculate_max_height_width method in helpers
-    max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
-    VOC_test_data = VOC_test_data.map(lambda x : helpers.handle_padding(x, max_height, max_width))
+# If you want to use different dataset and don't know max height and width values
+# You can use calculate_max_height_width method in helpers
+max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
+VOC_test_data = VOC_test_data.map(lambda x : helpers.preprocessing(x, max_height, max_width))
+
+padded_shapes = ([None, None, None], [None, None], [None,])
+padding_values = (tf.constant(0, tf.float32), tf.constant(-1, tf.float32), tf.constant(-1, tf.int32))
+VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 
 for image_data in VOC_test_data:
-    img = image_data["image"]
-    input_img, img_params, gt_boxes, gt_labels = helpers.preprocessing(image_data, hyper_params, preprocess_input)
-    pred_bbox_deltas, pred_labels = rpn_model.predict_on_batch(input_img)
-    anchors = rpn.generate_anchors(img_params, hyper_params)
-    pred_bbox_deltas = tf.reshape(pred_bbox_deltas, (-1, 4))
-    pred_labels = tf.reshape(pred_labels, (-1, ))
-    pred_bboxes = helpers.get_bboxes_from_deltas(anchors, pred_bbox_deltas)
-    selected_bboxes = helpers.non_max_suppression(pred_bboxes, pred_labels, hyper_params)
-    helpers.draw_bboxes(img, selected_bboxes)
+    img, gt_boxes, gt_labels = image_data
+    input_img, anchors = rpn.get_step_data(image_data, hyper_params, preprocess_input, mode="inference")
+    rpn_bbox_deltas, rpn_labels = rpn_model.predict_on_batch(input_img)
+    #
+    anchors_shape = tf.shape(anchors)
+    batch_size, anchor_row_size = anchors_shape[0], anchors_shape[1]
+    rpn_bbox_deltas = tf.reshape(rpn_bbox_deltas, (batch_size, anchor_row_size, 4))
+    rpn_labels = tf.reshape(rpn_labels, (batch_size, anchor_row_size, 1))
+    #
+    rpn_bboxes = helpers.get_bboxes_from_deltas(anchors, rpn_bbox_deltas)
+    rpn_bboxes = tf.reshape(rpn_bboxes, (batch_size, anchor_row_size, 1, 4))
+    #
+    nms_bboxes = helpers.non_max_suppression(rpn_bboxes, rpn_labels, hyper_params)
+    helpers.draw_bboxes(img, nms_bboxes)

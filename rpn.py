@@ -63,52 +63,55 @@ def generate_anchors(img_params, hyper_params):
     anchors = helpers.normalize_bboxes(anchors, height, width)
     return anchors
 
-def get_bbox_deltas_and_labels(anchors, gt_boxes, hyper_params, img_params):
-    anchor_count = hyper_params["anchor_count"]
-    height, width, output_height, output_width = img_params
-    #############################
-    # Positive and negative anchors calculation
-    #############################
-    # Positive and negative anchor numbers are 128 in original paper
-    pos_bbox_indices, neg_bbox_indices, gt_box_indices = helpers.get_selected_indices([anchors, gt_boxes, hyper_params["total_pos_bboxes"]])
-    #############################
-    # Bbox delta calculation
-    #############################
-    pos_gt_boxes_map = tf.gather(gt_boxes, gt_box_indices)
-    final_gt_boxes = tf.scatter_nd(tf.expand_dims(pos_bbox_indices, 1), pos_gt_boxes_map, tf.shape(anchors))
-    bbox_deltas = helpers.get_deltas_from_bboxes(anchors, final_gt_boxes)
-    #############################
-    # Label calculation
-    #############################
-    # labels => 1 object, 0 background, -1 neutral
-    labels = -1 * np.ones((anchors.shape[0], ), dtype=np.float32)
-    labels[neg_bbox_indices] = 0
-    labels[pos_bbox_indices] = 1
-    ############################################################
-    bbox_deltas = tf.reshape(bbox_deltas, (output_height, output_width, anchor_count * 4))
-    labels = tf.reshape(labels, (output_height, output_width, anchor_count))
-    return bbox_deltas, labels
-
-def generator(data, hyper_params, input_processor):
+def generator(dataset, hyper_params, input_processor):
     while True:
-        for image_data in data:
-            input_img, img_params, gt_boxes, _ = helpers.preprocessing(image_data, hyper_params, input_processor)
-            input, outputs, _ = get_step_data(input_img, img_params, gt_boxes, hyper_params)
-            yield input, outputs
+        for image_data in dataset:
+            input_img, bbox_deltas, bbox_labels, _ = get_step_data(image_data, hyper_params, input_processor)
+            yield input_img, [bbox_deltas, bbox_labels]
 
-def get_input_output(input_img, bbox_deltas, labels):
-    input = input_img
-    outputs = [
-        np.expand_dims(bbox_deltas, axis=0),
-        np.expand_dims(labels, axis=0)
-    ]
-    return input, outputs
-
-def get_step_data(input_img, img_params, gt_boxes, hyper_params):
+def get_step_data(image_data, hyper_params, input_processor, mode="training"):
+    img, gt_boxes, gt_labels = image_data
+    batch_size = tf.shape(img)[0]
+    input_img = input_processor(img)
+    stride, anchor_count, total_pos_bboxes, total_neg_bboxes = hyper_params["stride"], hyper_params["anchor_count"], hyper_params["total_pos_bboxes"], hyper_params["total_neg_bboxes"]
+    total_bboxes = total_pos_bboxes + total_neg_bboxes
+    img_params = helpers.get_image_params(img, stride)
+    height, width, output_height, output_width = img_params
+    anchor_row_size = output_height * output_width * anchor_count
     anchors = generate_anchors(img_params, hyper_params)
-    actual_bbox_deltas, actual_labels = get_bbox_deltas_and_labels(anchors, gt_boxes, hyper_params, img_params)
-    input, outputs = get_input_output(input_img, actual_bbox_deltas, actual_labels)
-    return input, outputs, anchors
+    # We use same anchors for each batch so we multiplied anchors to the batch size
+    anchors = tf.reshape(tf.tile(anchors, (batch_size, 1)), (batch_size, anchor_row_size, 4))
+    if mode != "training":
+        return input_img, anchors
+    ################################################################################################################
+    # This method could be updated for batch operations
+    # But not working for now because of different shapes of gt_boxes and gt_labels
+    batch_total_pos_bboxes = tf.tile([total_pos_bboxes], (batch_size,))
+    batch_total_neg_bboxes = tf.tile([total_neg_bboxes], (batch_size,))
+    bbox_indices, gt_box_indices = tf.map_fn(helpers.get_selected_indices,
+                                            (anchors, gt_boxes, batch_total_pos_bboxes, batch_total_neg_bboxes),
+                                            dtype=(tf.int32, tf.int32), swap_memory=True)
+    ################################################################################################################
+    gt_boxes_map = helpers.get_gt_boxes_map(gt_boxes, gt_box_indices, batch_size, total_neg_bboxes)
+    #
+    pos_labels_map = tf.ones((batch_size, total_pos_bboxes), tf.int32)
+    neg_labels_map = tf.zeros((batch_size, total_neg_bboxes), tf.int32)
+    gt_labels_map = tf.concat([pos_labels_map, neg_labels_map], axis=1)
+    #
+    flatted_batch_indices = helpers.get_tiled_indices(batch_size, total_bboxes)
+    flatted_bbox_indices = tf.reshape(bbox_indices, (-1, 1))
+    scatter_indices = helpers.get_scatter_indices_for_bboxes([flatted_batch_indices, flatted_bbox_indices], batch_size, total_bboxes)
+    expanded_gt_boxes = tf.scatter_nd(scatter_indices, gt_boxes_map, tf.shape(anchors))
+    #
+    bbox_deltas = helpers.get_deltas_from_bboxes(anchors, expanded_gt_boxes)
+    #
+    bbox_labels = tf.negative(tf.ones((batch_size, anchor_row_size), tf.int32))
+    bbox_labels = tf.tensor_scatter_nd_update(bbox_labels, scatter_indices, gt_labels_map)
+    #
+    bbox_deltas = tf.reshape(bbox_deltas, (batch_size, output_height, output_width, anchor_count * 4))
+    bbox_labels = tf.reshape(bbox_labels, (batch_size, output_height, output_width, anchor_count))
+    #
+    return input_img, bbox_deltas, bbox_labels, anchors
 
 def get_model(base_model, hyper_params):
     output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)

@@ -9,15 +9,15 @@ args = helpers.handle_args()
 if args.handle_gpu:
     helpers.handle_gpu_compatibility()
 
+batch_size = 2
 epochs = 100
-apply_padding = True
 load_weights = False
 hyper_params = {
     "anchor_ratios": [0.5, 1, 2],
     "anchor_scales": [16, 32, 64, 128, 256],
     "stride": 32,
-    "nms_topn": 300,
     "total_pos_bboxes": 64,
+    "total_neg_bboxes": 64,
 }
 hyper_params["anchor_count"] = len(hyper_params["anchor_ratios"]) * len(hyper_params["anchor_scales"])
 
@@ -36,20 +36,23 @@ rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=0.00001),
 VOC_train_data, VOC_train_data_len, _ = helpers.get_VOC_data("train")
 VOC_val_data, VOC_val_data_len, _ = helpers.get_VOC_data("validation")
 
-if apply_padding:
-    # If you want to use different dataset and don't know max height and width values
-    # You can use calculate_max_height_width method in helpers
-    max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
-    VOC_train_data = VOC_train_data.map(lambda x : helpers.handle_padding(x, max_height, max_width))
-    VOC_val_data = VOC_val_data.map(lambda x : helpers.handle_padding(x, max_height, max_width))
+# If you want to use different dataset and don't know max height and width values
+# You can use calculate_max_height_width method in helpers
+max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
+VOC_train_data = VOC_train_data.map(lambda x : helpers.preprocessing(x, max_height, max_width))
+VOC_val_data = VOC_val_data.map(lambda x : helpers.preprocessing(x, max_height, max_width))
+
+padded_shapes = ([None, None, None], [None, None], [None,])
+padding_values = (tf.constant(0, tf.float32), tf.constant(-1, tf.float32), tf.constant(-1, tf.int32))
+VOC_train_data = VOC_train_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
+VOC_val_data = VOC_val_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 
 rpn_train_feed = rpn.generator(VOC_train_data, hyper_params, preprocess_input)
 rpn_val_feed = rpn.generator(VOC_val_data, hyper_params, preprocess_input)
 
 model_checkpoint = ModelCheckpoint(model_path, save_best_only=True, save_weights_only=True, monitor="val_loss", mode="auto")
 early_stopping = EarlyStopping(monitor="val_loss", patience=20, verbose=0, mode="auto")
-# Batch size different from 1 not supported yet
-batch_size = 1
+
 step_size_train = VOC_train_data_len // batch_size
 step_size_val = VOC_val_data_len // batch_size
 rpn_model.fit_generator(generator=rpn_train_feed,
