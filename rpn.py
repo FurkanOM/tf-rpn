@@ -10,7 +10,7 @@ def cls_loss(y_true, y_pred):
     target = tf.gather_nd(y_true, indices)
     output = tf.gather_nd(y_pred, indices)
     lf = tf.losses.BinaryCrossentropy()
-    return tf.reduce_mean(lf(target, output))
+    return lf(target, output)
 
 def reg_loss(y_true, y_pred):
     indices = tf.where(tf.not_equal(y_true, 0))
@@ -18,7 +18,7 @@ def reg_loss(y_true, y_pred):
     output = tf.gather_nd(y_pred, indices)
     # Same with the smooth l1 loss
     lf = tf.losses.Huber()
-    return tf.reduce_mean(lf(target, output))
+    return lf(target, output)
 
 def generate_base_anchors(hyper_params):
     stride = hyper_params["stride"]
