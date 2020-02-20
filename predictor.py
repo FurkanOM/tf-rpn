@@ -38,7 +38,7 @@ max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
 VOC_test_data = VOC_test_data.map(lambda x : helpers.preprocessing(x, max_height, max_width))
 
 padded_shapes = ([None, None, None], [None, None], [None,])
-padding_values = (tf.constant(0, tf.float32), tf.constant(-1, tf.float32), tf.constant(-1, tf.int32))
+padding_values = (tf.constant(0, tf.uint8), tf.constant(-1, tf.float32), tf.constant(-1, tf.int32))
 VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 
 for image_data in VOC_test_data:
@@ -55,4 +55,5 @@ for image_data in VOC_test_data:
     rpn_bboxes = tf.reshape(rpn_bboxes, (batch_size, anchor_row_size, 1, 4))
     #
     nms_bboxes = helpers.non_max_suppression(rpn_bboxes, rpn_labels, hyper_params)
-    helpers.draw_bboxes(img, nms_bboxes)
+    img_float32 = tf.image.convert_image_dtype(img, dtype=tf.float32)
+    helpers.draw_bboxes(img_float32, nms_bboxes)
