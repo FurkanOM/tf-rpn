@@ -10,15 +10,7 @@ if args.handle_gpu:
     helpers.handle_gpu_compatibility()
 
 batch_size = 1
-hyper_params = {
-    "anchor_ratios": [0.5, 1, 2],
-    "anchor_scales": [16, 32, 64, 128, 256],
-    "stride": 32,
-    "nms_topn": 10,
-    "total_pos_bboxes": 64,
-    "total_neg_bboxes": 64,
-}
-hyper_params["anchor_count"] = len(hyper_params["anchor_ratios"]) * len(hyper_params["anchor_scales"])
+hyper_params = helpers.get_hyper_params(nms_topn=10)
 
 base_model = VGG16(include_top=False)
 if hyper_params["stride"] == 16:
@@ -37,8 +29,7 @@ hyper_params["total_labels"] += 1
 max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
 VOC_test_data = VOC_test_data.map(lambda x : helpers.preprocessing(x, max_height, max_width))
 
-padded_shapes = ([None, None, None], [None, None], [None,])
-padding_values = (tf.constant(0, tf.uint8), tf.constant(-1, tf.float32), tf.constant(-1, tf.int32))
+padded_shapes, padding_values = helpers.get_padded_batch_params()
 VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 
 for image_data in VOC_test_data:
