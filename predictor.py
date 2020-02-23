@@ -20,9 +20,10 @@ model_path = rpn.get_model_path(hyper_params["stride"])
 rpn_model = rpn.get_model(base_model, hyper_params)
 rpn_model.load_weights(model_path)
 
-VOC_test_data, _, hyper_params["total_labels"] = helpers.get_VOC_data("test")
+VOC_test_data, VOC_info = helpers.get_VOC_data("test")
+labels = helpers.get_labels(VOC_info)
 # We add 1 class for background
-hyper_params["total_labels"] += 1
+hyper_params["total_labels"] = len(labels) + 1
 
 # If you want to use different dataset and don't know max height and width values
 # You can use calculate_max_height_width method in helpers
