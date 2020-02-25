@@ -46,8 +46,7 @@ rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=1e-5),
 rpn_model_path = rpn.get_model_path(hyper_params["stride"])
 
 if load_weights:
-    dummy_data = rpn.get_dummy_training_data(hyper_params)
-    rpn_model = helpers.load_weights_to_model(rpn_model, rpn_model_path, dummy_data)
+    rpn_model.load_weights(rpn_model_path)
 
 custom_callback = helpers.CustomCallback(rpn_model_path, monitor="val_loss", patience=5)
 

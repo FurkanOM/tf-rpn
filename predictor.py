@@ -16,7 +16,6 @@ VOC_test_data, VOC_info = helpers.get_VOC_data("test")
 labels = helpers.get_labels(VOC_info)
 # We add 1 class for background
 hyper_params["total_labels"] = len(labels) + 1
-
 # If you want to use different dataset and don't know max height and width values
 # You can use calculate_max_height_width method in helpers
 max_height, max_width = helpers.VOC["max_height"], helpers.VOC["max_width"]
@@ -28,7 +27,6 @@ VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shap
 base_model = VGG16(include_top=False)
 if hyper_params["stride"] == 16:
     base_model = Sequential(base_model.layers[:-1])
-
 rpn_model = rpn.get_model(base_model, hyper_params)
 
 rpn_model_path = rpn.get_model_path(hyper_params["stride"])

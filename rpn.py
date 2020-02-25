@@ -125,21 +125,9 @@ def get_model(base_model, hyper_params):
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
     return rpn_model
 
-def get_dummy_training_data(hyper_params):
-    anchor_count, stride = hyper_params["anchor_count"], hyper_params["stride"]
-    batch_size = 1
-    img_height = 500
-    img_width = 500
-    output_width = img_height // stride
-    output_height = img_width // stride
-    dummy_img = np.zeros((batch_size, img_height, img_width, 3), dtype=np.uint8)
-    dummy_bbox_deltas = np.zeros((batch_size, output_height, output_width, anchor_count * 4))
-    dummy_bbox_labels = np.zeros((batch_size, output_height, output_width, anchor_count))
-    return dummy_img, (dummy_bbox_deltas, dummy_bbox_labels)
-
 def get_model_path(stride):
-    main_path = "models/rpn_models"
+    main_path = "models"
     if not os.path.exists(main_path):
         os.makedirs(main_path)
-    model_path = os.path.join(main_path, "with_stride_{0}".format(stride))
+    model_path = os.path.join(main_path, "stride_{0}_rpn_model_weights.h5".format(stride))
     return model_path

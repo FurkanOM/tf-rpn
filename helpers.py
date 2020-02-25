@@ -34,8 +34,7 @@ class CustomCallback(tf.keras.callbacks.Callback):
         if np.less(current, self.best_loss):
             self.best_loss = current
             self.patience_counter = 0
-            # Recomended way from tensorflow to save model with custom subclasses
-            self.model.save_weights(self.model_path, save_format="tf")
+            self.model.save_weights(self.model_path)
         else:
             self.patience_counter += 1
             if self.patience_counter >= self.patience:
@@ -45,14 +44,6 @@ class CustomCallback(tf.keras.callbacks.Callback):
         if self.last_epoch:
             print("Training stopped at {0} epoch because loss value did not decrease anymore".format(self.last_epoch))
 ###############################################################
-
-def load_weights_to_model(model, model_path, dummy_data):
-    # We train model with dummy data before the load weights
-    # In this way, optimizer and other states are initialized
-    model.train_on_batch(dummy_data[0], dummy_data[1])
-    # We load weights after the dummy training as proposed by tensorflow
-    model.load_weights(model_path)
-    return model
 
 def get_hyper_params(**kwargs):
     hyper_params = {
