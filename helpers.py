@@ -13,6 +13,46 @@ VOC = {
     "max_height": 500,
     "max_width": 500,
 }
+###############################################################
+## Custom callback for model saving and early stopping
+###############################################################
+class CustomCallback(tf.keras.callbacks.Callback):
+    def __init__(self, model_path, monitor, patience=0):
+        super(CustomCallback, self).__init__()
+        self.model_path = model_path
+        self.monitor = monitor
+        self.patience = patience
+
+    def on_train_begin(self, logs=None):
+        self.patience_counter = 0
+        self.best_loss = float("inf")
+        self.last_epoch = 0
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.last_epoch = epoch
+        current = logs.get(self.monitor)
+        if np.less(current, self.best_loss):
+            self.best_loss = current
+            self.patience_counter = 0
+            # Recomended way from tensorflow to save model with custom subclasses
+            self.model.save_weights(self.model_path, save_format="tf")
+        else:
+            self.patience_counter += 1
+            if self.patience_counter >= self.patience:
+                self.model.stop_training = True
+
+    def on_train_end(self, logs=None):
+        if self.last_epoch:
+            print("Training stopped at {0} epoch because loss value did not decrease anymore".format(self.last_epoch))
+###############################################################
+
+def load_weights_to_model(model, model_path, dummy_data):
+    # We train model with dummy data before the load weights
+    # In this way, optimizer and other states are initialized
+    model.train_on_batch(dummy_data[0], dummy_data[1])
+    # We load weights after the dummy training as proposed by tensorflow
+    model.load_weights(model_path)
+    return model
 
 def get_hyper_params(**kwargs):
     hyper_params = {
@@ -149,8 +189,7 @@ def get_selected_indices(args):
     neg_bbox_indices = tf.random.shuffle(neg_candidate_indices)[:total_neg_bboxes]
     gt_box_indices = tf.gather(max_indices_each_gt_box, pos_bbox_indices)
     #
-    bbox_indices = tf.concat([pos_bbox_indices, neg_bbox_indices], 0)
-    return bbox_indices, gt_box_indices
+    return pos_bbox_indices, neg_bbox_indices, gt_box_indices
 
 def get_tiled_indices(batch_size, row_size):
     tiled_indices = tf.range(batch_size)

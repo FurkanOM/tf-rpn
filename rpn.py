@@ -91,15 +91,17 @@ def get_step_data(image_data, hyper_params, input_processor, mode="training"):
     # But not working for now because of different shapes of gt_boxes and gt_labels
     batch_total_pos_bboxes = tf.tile([total_pos_bboxes], (batch_size,))
     batch_total_neg_bboxes = tf.tile([total_neg_bboxes], (batch_size,))
-    bbox_indices, gt_box_indices = tf.map_fn(helpers.get_selected_indices,
+    pos_bbox_indices, neg_bbox_indices, gt_box_indices = tf.map_fn(helpers.get_selected_indices,
                                             (anchors, gt_boxes, batch_total_pos_bboxes, batch_total_neg_bboxes),
-                                            dtype=(tf.int32, tf.int32), swap_memory=True)
+                                            dtype=(tf.int32, tf.int32, tf.int32), swap_memory=True)
     ################################################################################################################
     gt_boxes_map = helpers.get_gt_boxes_map(gt_boxes, gt_box_indices, batch_size, total_neg_bboxes)
     #
     pos_labels_map = tf.ones((batch_size, total_pos_bboxes), tf.int32)
     neg_labels_map = tf.zeros((batch_size, total_neg_bboxes), tf.int32)
     gt_labels_map = tf.concat([pos_labels_map, neg_labels_map], axis=1)
+    #
+    bbox_indices = tf.concat([pos_bbox_indices, neg_bbox_indices], axis=1)
     #
     flatted_batch_indices = helpers.get_tiled_indices(batch_size, total_bboxes)
     flatted_bbox_indices = tf.reshape(bbox_indices, (-1, 1))
@@ -123,9 +125,21 @@ def get_model(base_model, hyper_params):
     rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
     return rpn_model
 
+def get_dummy_training_data(hyper_params):
+    anchor_count, stride = hyper_params["anchor_count"], hyper_params["stride"]
+    batch_size = 1
+    img_height = 500
+    img_width = 500
+    output_width = img_height // stride
+    output_height = img_width // stride
+    dummy_img = np.zeros((batch_size, img_height, img_width, 3), dtype=np.uint8)
+    dummy_bbox_deltas = np.zeros((batch_size, output_height, output_width, anchor_count * 4))
+    dummy_bbox_labels = np.zeros((batch_size, output_height, output_width, anchor_count))
+    return dummy_img, (dummy_bbox_deltas, dummy_bbox_labels)
+
 def get_model_path(stride):
-    main_path = "models"
+    main_path = "models/rpn_models"
     if not os.path.exists(main_path):
         os.makedirs(main_path)
-    model_path = os.path.join(main_path, "stride_{0}_rpn_model_weights.h5".format(stride))
+    model_path = os.path.join(main_path, "with_stride_{0}".format(stride))
     return model_path

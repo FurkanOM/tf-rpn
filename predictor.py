@@ -12,14 +12,6 @@ if args.handle_gpu:
 batch_size = 1
 hyper_params = helpers.get_hyper_params(nms_topn=10)
 
-base_model = VGG16(include_top=False)
-if hyper_params["stride"] == 16:
-    base_model = Sequential(base_model.layers[:-1])
-
-model_path = rpn.get_model_path(hyper_params["stride"])
-rpn_model = rpn.get_model(base_model, hyper_params)
-rpn_model.load_weights(model_path)
-
 VOC_test_data, VOC_info = helpers.get_VOC_data("test")
 labels = helpers.get_labels(VOC_info)
 # We add 1 class for background
@@ -32,6 +24,15 @@ VOC_test_data = VOC_test_data.map(lambda x : helpers.preprocessing(x, max_height
 
 padded_shapes, padding_values = helpers.get_padded_batch_params()
 VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
+
+base_model = VGG16(include_top=False)
+if hyper_params["stride"] == 16:
+    base_model = Sequential(base_model.layers[:-1])
+
+rpn_model = rpn.get_model(base_model, hyper_params)
+
+rpn_model_path = rpn.get_model_path(hyper_params["stride"])
+rpn_model.load_weights(rpn_model_path)
 
 for image_data in VOC_test_data:
     img, gt_boxes, gt_labels = image_data
