@@ -1,7 +1,8 @@
 import os
 import tensorflow as tf
+from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 from tensorflow.keras.layers import Conv2D
-from tensorflow.keras.models import Model
+from tensorflow.keras.models import Model, Sequential
 import numpy as np
 import helpers
 
@@ -68,22 +69,21 @@ def generate_anchors(img_params, hyper_params):
     anchors = np.clip(anchors, 0, 1)
     return anchors
 
-def generator(dataset, hyper_params, input_processor):
+def generator(dataset, hyper_params):
     """Tensorflow data generator for fit method, yielding inputs and outputs.
     inputs:
         dataset = tf.data.Dataset, PaddedBatchDataset
         hyper_params = dictionary
-        input_processor = function for preparing image for input. It's getting from backbone.
 
     outputs:
         yield inputs, outputs
     """
     while True:
         for image_data in dataset:
-            input_img, bbox_deltas, bbox_labels, _ = get_step_data(image_data, hyper_params, input_processor)
+            input_img, bbox_deltas, bbox_labels, _ = get_step_data(image_data, hyper_params)
             yield input_img, (bbox_deltas, bbox_labels)
 
-def get_step_data(image_data, hyper_params, input_processor, mode="training"):
+def get_step_data(image_data, hyper_params, mode="training"):
     """Generating one step data for training or inference.
     Batch operations supported.
     inputs:
@@ -93,12 +93,11 @@ def get_step_data(image_data, hyper_params, input_processor, mode="training"):
                 these values in normalized format between [0, 1]
             gt_labels (batch_size, gt_box_size)
         hyper_params = dictionary
-        input_processor = function for preparing image for input. It's getting from backbone.
         mode = "training" or "inference"
 
     outputs:
         input_img = (batch_size, height, width, channels)
-            preprocessed image using input_processor
+            preprocessed image using preprocess_input
         bbox_deltas = (batch_size, output_height, output_width, anchor_count * [delta_y, delta_x, delta_h, delta_w])
             actual outputs for rpn, generating only training mode
         bbox_labels = (batch_size, output_height, output_width, anchor_count)
@@ -107,7 +106,8 @@ def get_step_data(image_data, hyper_params, input_processor, mode="training"):
     """
     img, gt_boxes, gt_labels = image_data
     batch_size = tf.shape(img)[0]
-    input_img = input_processor(img)
+    input_img = preprocess_input(img)
+    input_img = tf.image.convert_image_dtype(input_img, tf.float32)
     stride = hyper_params["stride"]
     anchor_count = hyper_params["anchor_count"]
     total_pos_bboxes = hyper_params["total_pos_bboxes"]
@@ -147,17 +147,32 @@ def get_step_data(image_data, hyper_params, input_processor, mode="training"):
     #
     return input_img, bbox_deltas, bbox_labels, anchors
 
-def get_model(base_model, hyper_params):
-    """Generating rpn model for given backbone base model and hyper params.
-    inputs:
-        base_model = tf.keras.model pretrained backbone, only VGG16 available for now
-        hyper_params = dictionary
+class RPNModel(Model):
+    def __init__(self, stride, anchor_count, **kwargs):
+        super().__init__(**kwargs)
+        self.stride = stride
+        self.anchor_count = anchor_count
+        self.base_model = self.get_base_model()
+        self.head_layers = self.get_head_layers()
 
-    outputs:
-        rpn_model = tf.keras.model
-    """
-    output = Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv")(base_model.output)
-    rpn_cls_output = Conv2D(hyper_params["anchor_count"], (1, 1), activation="sigmoid", name="rpn_cls")(output)
-    rpn_reg_output = Conv2D(hyper_params["anchor_count"] * 4, (1, 1), activation="linear", name="rpn_reg")(output)
-    rpn_model = Model(inputs=base_model.input, outputs=[rpn_reg_output, rpn_cls_output])
-    return rpn_model
+    def get_base_model(self):
+        base_model = VGG16(include_top=False)
+        if self.stride == 16:
+            base_model = Sequential(base_model.layers[:-1])
+        return base_model
+
+    def get_head_layers(self):
+        anchor_count = self.anchor_count
+        return [
+            Conv2D(512, (3, 3), activation="relu", padding="same", name="rpn_conv"),
+            Conv2D(anchor_count * 4, (1, 1), activation="linear", name="rpn_reg"),
+            Conv2D(anchor_count, (1, 1), activation="sigmoid", name="rpn_cls"),
+        ]
+
+    def call(self, x):
+        for layer in self.base_model.layers:
+            x = layer(x)
+        x = self.head_layers[0](x)
+        reg_output = self.head_layers[1](x)
+        cls_output = self.head_layers[2](x)
+        return reg_output, cls_output

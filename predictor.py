@@ -1,10 +1,7 @@
 import tensorflow as tf
-from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
-from tensorflow.keras.models import load_model, Sequential
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.models import load_model
 import helpers
 import rpn
-import faster_rcnn
 
 args = helpers.handle_args()
 if args.handle_gpu:
@@ -25,17 +22,14 @@ VOC_test_data = VOC_test_data.map(lambda x : helpers.preprocessing(x, max_height
 padded_shapes, padding_values = helpers.get_padded_batch_params()
 VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 
-base_model = VGG16(include_top=False)
-if hyper_params["stride"] == 16:
-    base_model = Sequential(base_model.layers[:-1])
-rpn_model = rpn.get_model(base_model, hyper_params)
-
+rpn_model = rpn.RPNModel(hyper_params["stride"], hyper_params["anchor_count"])
+rpn_model(tf.random.uniform((1, max_height, max_width, 3)))
 rpn_model_path = helpers.get_model_path("rpn", hyper_params["stride"])
 rpn_model.load_weights(rpn_model_path)
 
 for image_data in VOC_test_data:
     img, gt_boxes, gt_labels = image_data
-    input_img, anchors = rpn.get_step_data(image_data, hyper_params, preprocess_input, mode="inference")
+    input_img, anchors = rpn.get_step_data(image_data, hyper_params, mode="inference")
     rpn_bbox_deltas, rpn_labels = rpn_model.predict_on_batch(input_img)
     #
     anchors_shape = tf.shape(anchors)

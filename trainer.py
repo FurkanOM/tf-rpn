@@ -1,6 +1,4 @@
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input
 import helpers
 import rpn
 
@@ -8,7 +6,7 @@ args = helpers.handle_args()
 if args.handle_gpu:
     helpers.handle_gpu_compatibility()
 
-train_batch_size = 4
+train_batch_size = 8
 val_batch_size = 8
 epochs = 50
 load_weights = False
@@ -31,20 +29,16 @@ padded_shapes, padding_values = helpers.get_padded_batch_params()
 VOC_train_data = VOC_train_data.padded_batch(train_batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 VOC_val_data = VOC_val_data.padded_batch(val_batch_size, padded_shapes=padded_shapes, padding_values=padding_values)
 
-rpn_train_feed = rpn.generator(VOC_train_data, hyper_params, preprocess_input)
-rpn_val_feed = rpn.generator(VOC_val_data, hyper_params, preprocess_input)
+rpn_train_feed = rpn.generator(VOC_train_data, hyper_params)
+rpn_val_feed = rpn.generator(VOC_val_data, hyper_params)
 
-base_model = VGG16(include_top=False, weights="imagenet")
-if hyper_params["stride"] == 16:
-    base_model = Sequential(base_model.layers[:-1])
-
-rpn_model = rpn.get_model(base_model, hyper_params)
+rpn_model = rpn.RPNModel(hyper_params["stride"], hyper_params["anchor_count"])
+rpn_model(tf.random.uniform((1, max_height, max_width, 3)))
 rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=1e-5),
                   loss=[helpers.reg_loss, helpers.rpn_cls_loss],
                   loss_weights=[10., 1.])
 # Load weights
 rpn_model_path = helpers.get_model_path("rpn", hyper_params["stride"])
-
 if load_weights:
     rpn_model.load_weights(rpn_model_path)
 
