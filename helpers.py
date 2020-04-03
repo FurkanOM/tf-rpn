@@ -5,7 +5,6 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import matplotlib.pyplot as plt
 import numpy as np
-import math
 
 ###########################################
 ## Pascal VOC
@@ -168,7 +167,7 @@ def get_step_size(total_items, batch_size):
     outputs:
         step_size = number of step size for model training
     """
-    return math.ceil(total_items / batch_size)
+    return np.ceil(total_items / batch_size)
 
 def get_total_item_size(info, split):
     """Get total item size for given split.
