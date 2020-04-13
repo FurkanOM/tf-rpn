@@ -36,7 +36,7 @@ rpn_val_feed = rpn.generator(VOC_val_data, hyper_params)
 rpn_model = rpn.RPNModel(hyper_params["stride"], hyper_params["anchor_count"])
 rpn_model(tf.random.uniform((1, max_height, max_width, 3)))
 rpn_model.compile(optimizer=tf.optimizers.Adam(learning_rate=1e-5),
-                  loss=[helpers.reg_loss, helpers.rpn_cls_loss],
+                  loss=[helpers.reg_loss, helpers.cls_loss],
                   loss_weights=[10., 1.])
 # Load weights
 rpn_model_path = helpers.get_model_path("rpn", hyper_params["stride"])

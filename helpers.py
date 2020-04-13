@@ -45,19 +45,7 @@ class CustomCallback(tf.keras.callbacks.Callback):
             print("Training early stopped at {0} epoch because loss value did not decrease last {1} epochs".format(self.last_epoch+1, self.patience))
 ###############################################################
 
-def frcnn_cls_loss(*args):
-    """Calculating faster rcnn class loss value.
-    inputs:
-        *args = could be (y_true, y_pred) or ((y_true, y_pred), )
-
-    outputs:
-        loss = CategoricalCrossentropy value
-    """
-    y_true, y_pred = args if len(args) == 2 else args[0]
-    lf = tf.losses.CategoricalCrossentropy()
-    return lf(y_true, y_pred)
-
-def rpn_cls_loss(*args):
+def cls_loss(*args):
     """Calculating rpn class loss value.
     Rpn actual class value should be 0 or 1.
     Because of this we only take into account non -1 values.
@@ -167,7 +155,7 @@ def get_step_size(total_items, batch_size):
     outputs:
         step_size = number of step size for model training
     """
-    return np.ceil(total_items / batch_size)
+    return int(np.ceil(total_items / batch_size))
 
 def get_total_item_size(info, split):
     """Get total item size for given split.
@@ -263,15 +251,15 @@ def get_bboxes_from_deltas(anchors, deltas):
     outputs:
         final_boxes = (batch_size, total_bboxes, [y1, x1, y2, x2])
     """
-    all_anc_width = anchors[:, :, 3] - anchors[:, :, 1]
-    all_anc_height = anchors[:, :, 2] - anchors[:, :, 0]
-    all_anc_ctr_x = anchors[:, :, 1] + 0.5 * all_anc_width
-    all_anc_ctr_y = anchors[:, :, 0] + 0.5 * all_anc_height
+    all_anc_width = anchors[..., 3] - anchors[..., 1]
+    all_anc_height = anchors[..., 2] - anchors[..., 0]
+    all_anc_ctr_x = anchors[..., 1] + 0.5 * all_anc_width
+    all_anc_ctr_y = anchors[..., 0] + 0.5 * all_anc_height
     #
-    all_bbox_width = tf.exp(deltas[:, :, 3]) * all_anc_width
-    all_bbox_height = tf.exp(deltas[:, :, 2]) * all_anc_height
-    all_bbox_ctr_x = (deltas[:, :, 1] * all_anc_width) + all_anc_ctr_x
-    all_bbox_ctr_y = (deltas[:, :, 0] * all_anc_height) + all_anc_ctr_y
+    all_bbox_width = tf.exp(deltas[..., 3]) * all_anc_width
+    all_bbox_height = tf.exp(deltas[..., 2]) * all_anc_height
+    all_bbox_ctr_x = (deltas[..., 1] * all_anc_width) + all_anc_ctr_x
+    all_bbox_ctr_y = (deltas[..., 0] * all_anc_height) + all_anc_ctr_y
     #
     y1 = all_bbox_ctr_y - (0.5 * all_bbox_height)
     x1 = all_bbox_ctr_x - (0.5 * all_bbox_width)
@@ -289,15 +277,15 @@ def get_deltas_from_bboxes(bboxes, gt_boxes):
     outputs:
         final_deltas = (batch_size, total_bboxes, [delta_y, delta_x, delta_h, delta_w])
     """
-    bbox_width = bboxes[:, :, 3] - bboxes[:, :, 1]
-    bbox_height = bboxes[:, :, 2] - bboxes[:, :, 0]
-    bbox_ctr_x = bboxes[:, :, 1] + 0.5 * bbox_width
-    bbox_ctr_y = bboxes[:, :, 0] + 0.5 * bbox_height
+    bbox_width = bboxes[..., 3] - bboxes[..., 1]
+    bbox_height = bboxes[..., 2] - bboxes[..., 0]
+    bbox_ctr_x = bboxes[..., 1] + 0.5 * bbox_width
+    bbox_ctr_y = bboxes[..., 0] + 0.5 * bbox_height
     #
-    gt_width = gt_boxes[:, :, 3] - gt_boxes[:, :, 1]
-    gt_height = gt_boxes[:, :, 2] - gt_boxes[:, :, 0]
-    gt_ctr_x = gt_boxes[:, :, 1] + 0.5 * gt_width
-    gt_ctr_y = gt_boxes[:, :, 0] + 0.5 * gt_height
+    gt_width = gt_boxes[..., 3] - gt_boxes[..., 1]
+    gt_height = gt_boxes[..., 2] - gt_boxes[..., 0]
+    gt_ctr_x = gt_boxes[..., 1] + 0.5 * gt_width
+    gt_ctr_y = gt_boxes[..., 0] + 0.5 * gt_height
     #
     bbox_width = tf.where(tf.equal(bbox_width, 0), 1e-3, bbox_width)
     bbox_height = tf.where(tf.equal(bbox_height, 0), 1e-3, bbox_height)
@@ -333,84 +321,6 @@ def generate_iou_map(bboxes, gt_boxes):
     union_area = (tf.expand_dims(bbox_area, 2) + tf.expand_dims(gt_area, 1) - intersection_area)
     # Intersection over Union
     return intersection_area / union_area
-
-def get_selected_indices(bboxes, gt_boxes, total_pos_bboxes, total_neg_bboxes):
-    """Calculating indices for each bounding box and correspond ground truth box.
-    inputs:
-        bboxes = (batch_size, total_bboxes, [y1, x1, y2, x2])
-        gt_boxes = (batch_size, total_gt_boxes, [y1, x1, y2, x2])
-        total_pos_bboxes = number of total pos boxes
-        total_neg_bboxes = number of total neg boxes
-
-    outputs:
-        pos_bbox_indices = (batch_size, total_pos_bboxes)
-        neg_bbox_indices = (batch_size, total_neg_bboxes)
-        gt_box_indices = (batch_size, total_pos_bboxes)
-    """
-    # Calculate iou values between each bboxes and ground truth boxes
-    iou_map = generate_iou_map(bboxes, gt_boxes)
-    # Get max index value for each row
-    max_indices_each_gt_box = tf.argmax(iou_map, axis=2, output_type=tf.int32)
-    # IoU map has iou values for every gt boxes and we merge these values column wise
-    merged_iou_map = tf.reduce_max(iou_map, axis=2)
-    # Sorted iou values
-    sorted_iou_map = tf.argsort(merged_iou_map, direction="DESCENDING")
-    # Get highest and lowest candidate indices
-    pos_candidate_indices = sorted_iou_map[:, :total_pos_bboxes * 2]
-    neg_candidate_indices = sorted_iou_map[:, ::-1][:, :total_neg_bboxes * 2]
-    # Shuffling
-    pos_candidate_indices_shuffled = tf.transpose(tf.random.shuffle(tf.transpose(pos_candidate_indices)))
-    neg_candidate_indices_shuffled = tf.transpose(tf.random.shuffle(tf.transpose(neg_candidate_indices)))
-    # Randomly select pos and neg indices from candidates
-    pos_bbox_indices = pos_candidate_indices_shuffled[:, :total_pos_bboxes]
-    neg_bbox_indices = neg_candidate_indices_shuffled[:, :total_neg_bboxes]
-    gt_box_indices = tf.gather(max_indices_each_gt_box, pos_bbox_indices, batch_dims=1)
-    #
-    return pos_bbox_indices, neg_bbox_indices, gt_box_indices
-
-def get_tiled_indices(batch_size, row_size):
-    """Generating tiled batch indices for "row_size" times.
-    inputs:
-        batch_size = number of total batch
-        row_size = number of total row
-
-    outputs:
-        tiled_indices = (batch_size * row_size, 1)
-            for example batch_size = 2, row_size = 3 => [[0], [0], [0], [1], [1], [1]]
-    """
-    tiled_indices = tf.range(batch_size)
-    tiled_indices = tf.tile(tf.expand_dims(tiled_indices, axis=1), (1, row_size))
-    tiled_indices = tf.reshape(tiled_indices, (-1, 1))
-    return tiled_indices
-
-def get_gt_boxes_map(gt_boxes, gt_box_indices, batch_size, total_neg_bboxes):
-    """Generating ground truth box map.
-    inputs:
-        gt_boxes = (batch_size, total_gt_boxes, [y1, x1, y2, x2])
-        gt_box_indices = (batch_size, total_pos_bboxes)
-        batch_size = number of total batch
-        total_neg_bboxes = number of total negative bounding boxes
-
-    outputs:
-        gt_boxes_map = (batch_size, total_pos_bboxes + total_neg_bboxes, [y1, x1, y2, x2])
-    """
-    pos_gt_boxes_map = tf.gather(gt_boxes, gt_box_indices, batch_dims=1)
-    neg_gt_boxes_map = tf.zeros((batch_size, total_neg_bboxes, 4), tf.float32)
-    return tf.concat([pos_gt_boxes_map, neg_gt_boxes_map], axis=1)
-
-def get_scatter_indices_for_bboxes(flatted_indices, batch_size, total_bboxes):
-    """Generating scatter indices for tensorflow scatter_nd operations.
-    inputs:
-        flatted_indices = list of flatted indices
-        batch_size = number of total batch
-        total_bboxes = number of total bounding boxes
-
-    outputs:
-        scatter_indices = (batch_size, total_bboxes, length_flatted_indices)
-    """
-    indices_size = len(flatted_indices)
-    scatter_indices = tf.concat(flatted_indices, 1)
-    return tf.reshape(scatter_indices, (batch_size, total_bboxes, indices_size))
 
 def normalize_bboxes(bboxes, height, width):
     """Normalizing bounding boxes.
