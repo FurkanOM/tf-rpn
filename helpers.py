@@ -128,7 +128,7 @@ def get_padded_batch_params():
         padding_values = padding values with dtypes for (images, ground truth boxes, labels)
     """
     padded_shapes = ([None, None, None], [None, None], [None,])
-    padding_values = (tf.constant(0, tf.uint8), tf.constant(0, tf.float32), tf.constant(-1, tf.int64))
+    padding_values = (tf.constant(0, tf.uint8), tf.constant(0, tf.float32), tf.constant(-1, tf.int32))
     return padded_shapes, padding_values
 
 def get_dataset(name, split, data_dir="~/tensorflow_datasets"):
@@ -196,7 +196,7 @@ def preprocessing(image_data, max_height, max_width):
     img = image_data["image"]
     img = resize_image(img, max_height, max_width)
     gt_boxes = image_data["objects"]["bbox"]
-    gt_labels = image_data["objects"]["label"]
+    gt_labels = tf.cast(image_data["objects"]["label"] + 1, tf.int32)
     return img, gt_boxes, gt_labels
 
 def get_image_params(batch_img, stride):
