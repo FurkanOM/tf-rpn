@@ -3,7 +3,6 @@ from tensorflow.keras.applications.vgg16 import preprocess_input
 from tensorflow.keras.models import load_model
 import helpers
 import rpn
-import faster_rcnn
 
 args = helpers.handle_args()
 if args.handle_gpu:
@@ -28,10 +27,8 @@ VOC_test_data = VOC_test_data.padded_batch(batch_size, padded_shapes=padded_shap
 
 rpn_model, _ = rpn.get_model(hyper_params)
 
-frcnn_model_path = helpers.get_model_path("frcnn")
 rpn_model_path = helpers.get_model_path("rpn")
-model_path = frcnn_model_path if load_weights_from_frcnn else rpn_model_path
-rpn_model.load_weights(model_path, by_name=True)
+rpn_model.load_weights(rpn_model_path)
 
 anchors = rpn.generate_anchors(max_height, max_width, hyper_params)
 
