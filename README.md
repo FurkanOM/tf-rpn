@@ -1,9 +1,6 @@
 # Region Proposal Network
 
 This is simple RPN implementation using tensorflow. It can be used for Faster-RCNN. Most of the operations performed during the implementation were carried out as described in the [paper](https://arxiv.org/pdf/1506.01497.pdf).
-However, positive and negative anchor number arranged as **64**, which was set to **128** in the paper.
-As the training and tests were performed on the [Pascal VOC 2007](http://host.robots.ox.ac.uk/pascal/VOC/voc2007/) dataset, the anchor scale values were applied as **[16, 32, 64, 128, 256]**.  
-There is also support for stride as **32**.
 Batch operations supported.
 
 ## Usage

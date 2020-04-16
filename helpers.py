@@ -13,37 +13,23 @@ VOC = {
     "max_height": 500,
     "max_width": 500,
 }
-###############################################################
-## Custom callback for model saving and early stopping
-###############################################################
-class CustomCallback(tf.keras.callbacks.Callback):
-    def __init__(self, model_path, monitor, patience=0):
-        super(CustomCallback, self).__init__()
-        self.model_path = model_path
-        self.monitor = monitor
-        self.patience = patience
 
-    def on_train_begin(self, logs=None):
-        self.patience_counter = 0
-        self.best_loss = float("inf")
-        self.last_epoch = 0
-
-    def on_epoch_end(self, epoch, logs=None):
-        self.last_epoch = epoch
-        current = logs.get(self.monitor)
-        if np.less(current, self.best_loss):
-            self.best_loss = current
-            self.patience_counter = 0
-            self.model.save_weights(self.model_path)
-        else:
-            self.patience_counter += 1
-            if self.patience_counter >= self.patience:
-                self.model.stop_training = True
-
-    def on_train_end(self, logs=None):
-        if self.last_epoch:
-            print("Training early stopped at {0} epoch because loss value did not decrease last {1} epochs".format(self.last_epoch+1, self.patience))
-###############################################################
+def randomly_select_xyz_mask(mask, select_xyz):
+    """Selecting x, y, z number of True elements for corresponding batch and replacing others to False
+    inputs:
+        mask = (batch_size, [m_bool_value])
+        select_xyz = ([x_y_z_number_for_corresponding_batch])
+            example = tf.constant([128, 50, 42], dtype=tf.int32)
+    outputs:
+        selected_valid_mask = (batch_size, [m_bool_value])
+    """
+    maxval = tf.reduce_max(select_xyz) * 10
+    random_mask = tf.random.uniform(tf.shape(mask), minval=1, maxval=maxval, dtype=tf.int32)
+    multiplied_mask = tf.cast(mask, tf.int32) * random_mask
+    sorted_mask = tf.argsort(multiplied_mask, direction="DESCENDING")
+    sorted_mask_indices = tf.argsort(sorted_mask)
+    selected_mask = tf.less(sorted_mask_indices, tf.expand_dims(select_xyz, 1))
+    return tf.logical_and(mask, selected_mask)
 
 def cls_loss(*args):
     """Calculating rpn class loss value.
@@ -56,14 +42,14 @@ def cls_loss(*args):
         loss = BinaryCrossentropy value
     """
     y_true, y_pred = args if len(args) == 2 else args[0]
-    indices = tf.where(tf.not_equal(y_true, -1))
+    indices = tf.where(tf.not_equal(y_true, tf.constant(-1.0, dtype=tf.float32)))
     target = tf.gather_nd(y_true, indices)
     output = tf.gather_nd(y_pred, indices)
     lf = tf.losses.BinaryCrossentropy()
     return lf(target, output)
 
 def reg_loss(*args):
-    """Calculating rpn/faster rcnn regression loss value.
+    """Calculating rpn regression loss value.
     Reg value should be different than zero for actual values.
     Because of this we only take into account non zero values.
     inputs:
@@ -73,46 +59,48 @@ def reg_loss(*args):
         loss = Huber it's almost the same with the smooth L1 loss
     """
     y_true, y_pred = args if len(args) == 2 else args[0]
-    indices = tf.where(tf.not_equal(y_true, 0))
-    target = tf.gather_nd(y_true, indices)
-    output = tf.gather_nd(y_pred, indices)
-    # # Same with the smooth l1 loss
-    lf = tf.losses.Huber()
-    return lf(target, output)
+    y_pred = tf.reshape(y_pred, (tf.shape(y_pred)[0], -1, 4))
+    #
+    loss_fn = tf.losses.Huber(reduction=tf.losses.Reduction.NONE)
+    loss_for_all = loss_fn(y_true, y_pred)
+    loss_for_all = tf.reduce_sum(loss_for_all, axis=-1)
+    #
+    pos_cond = tf.reduce_any(tf.not_equal(y_true, tf.constant(0.0)), axis=-1)
+    pos_mask = tf.cast(pos_cond, dtype=tf.float32)
+    #
+    loc_loss = tf.reduce_sum(pos_mask * loss_for_all)
+    total_pos_bboxes = tf.maximum(1.0, tf.reduce_sum(pos_mask))
+    return loc_loss / total_pos_bboxes
 
-def get_model_path(model_type, stride):
+def get_model_path(model_type):
     """Generating model path from stride value for save/load model weights.
     inputs:
         model_type = "rpn" or "frcnn"
-        stride = 32 or 16
 
     outputs:
-        model_path = os model path, for example: "models/stride_32_rpn_model_weights.h5"
+        model_path = os model path, for example: "models/rpn_model_weights.h5"
     """
     main_path = "models"
     if not os.path.exists(main_path):
         os.makedirs(main_path)
-    model_path = os.path.join(main_path, "stride_{0}_{1}_model_weights.h5".format(stride, model_type))
+    model_path = os.path.join(main_path, "{}_model_weights.h5".format(model_type))
     return model_path
 
 def get_hyper_params(**kwargs):
     """Generating hyper params in a dynamic way.
     inputs:
         **kwargs = any value could be updated in the hyper_params
-            stride => should be 16 or 32
-            nms_topn => should be <= (total_pos_bboxes + total_neg_bboxes) * 2
 
     outputs:
         hyper_params = dictionary
     """
     hyper_params = {
         "anchor_ratios": [0.5, 1, 2],
-        "anchor_scales": [16, 32, 64, 128, 256],
-        "stride": 32,
-        "nms_topn": 300,
-        "total_pos_bboxes": 64,
-        "total_neg_bboxes": 64,
-        "pooling_size": (7, 7),
+        "anchor_scales": [128, 256, 512],
+        "variances": [0.1, 0.1, 0.2, 0.2],
+        "stride": 16,
+        "total_pos_bboxes": 128,
+        "total_neg_bboxes": 128,
     }
     for key, value in kwargs.items():
         if key in hyper_params and value:
@@ -199,25 +187,6 @@ def preprocessing(image_data, max_height, max_width):
     gt_labels = tf.cast(image_data["objects"]["label"] + 1, tf.int32)
     return img, gt_boxes, gt_labels
 
-def get_image_params(batch_img, stride):
-    """Generating image output width and height values using stride value.
-    This method should be updated for backbones.
-    It's only supporting VGG16 backbone for now.
-    inputs:
-        batch_img = (batch_size, height, width, channels)
-        stride = 16 or 32 for now
-
-    outputs:
-        height = image height
-        width = image width
-        output_height = image output height for backbone
-        output_width = image output width for backbone
-    """
-    img_shape = tf.shape(batch_img)
-    height, width = img_shape[1], img_shape[2]
-    output_height, output_width = height // stride, width // stride
-    return height, width, output_height, output_width
-
 def non_max_suppression(pred_bboxes, pred_labels, **kwargs):
     """Applying non maximum suppression.
     Details could be found on tensorflow documentation.
@@ -289,12 +258,12 @@ def get_deltas_from_bboxes(bboxes, gt_boxes):
     #
     bbox_width = tf.where(tf.equal(bbox_width, 0), 1e-3, bbox_width)
     bbox_height = tf.where(tf.equal(bbox_height, 0), 1e-3, bbox_height)
-    delta_x = tf.where(tf.equal(gt_width, 0), tf.zeros_like(bbox_width), tf.truediv((gt_ctr_x - bbox_ctr_x), bbox_width))
-    delta_y = tf.where(tf.equal(gt_height, 0), tf.zeros_like(bbox_height), tf.truediv((gt_ctr_y - bbox_ctr_y), bbox_height))
-    delta_w = tf.where(tf.equal(gt_width, 0), tf.zeros_like(bbox_width), tf.math.log(gt_width / bbox_width))
-    delta_h = tf.where(tf.equal(gt_height, 0), tf.zeros_like(bbox_height), tf.math.log(gt_height / bbox_height))
+    delta_x = tf.where(tf.equal(gt_width, 0), tf.zeros_like(gt_width), tf.truediv((gt_ctr_x - bbox_ctr_x), bbox_width))
+    delta_y = tf.where(tf.equal(gt_height, 0), tf.zeros_like(gt_height), tf.truediv((gt_ctr_y - bbox_ctr_y), bbox_height))
+    delta_w = tf.where(tf.equal(gt_width, 0), tf.zeros_like(gt_width), tf.math.log(gt_width / bbox_width))
+    delta_h = tf.where(tf.equal(gt_height, 0), tf.zeros_like(gt_height), tf.math.log(gt_height / bbox_height))
     #
-    return tf.stack([delta_y, delta_x, delta_h, delta_w], axis=2)
+    return tf.stack([delta_y, delta_x, delta_h, delta_w], axis=-1)
 
 def generate_iou_map(bboxes, gt_boxes):
     """Calculating iou values for each ground truth boxes in batched manner.
@@ -305,11 +274,11 @@ def generate_iou_map(bboxes, gt_boxes):
     outputs:
         iou_map = (batch_size, total_bboxes, total_gt_boxes)
     """
-    bbox_y1, bbox_x1, bbox_y2, bbox_x2 = tf.split(bboxes, 4, axis=2)
-    gt_y1, gt_x1, gt_y2, gt_x2 = tf.split(gt_boxes, 4, axis=2)
+    bbox_y1, bbox_x1, bbox_y2, bbox_x2 = tf.split(bboxes, 4, axis=-1)
+    gt_y1, gt_x1, gt_y2, gt_x2 = tf.split(gt_boxes, 4, axis=-1)
     # Calculate bbox and ground truth boxes areas
-    gt_area = tf.squeeze((gt_y2 - gt_y1) * (gt_x2 - gt_x1), axis=2)
-    bbox_area = tf.squeeze((bbox_y2 - bbox_y1) * (bbox_x2 - bbox_x1), axis=2)
+    gt_area = tf.squeeze((gt_y2 - gt_y1) * (gt_x2 - gt_x1), axis=-1)
+    bbox_area = tf.squeeze((bbox_y2 - bbox_y1) * (bbox_x2 - bbox_x1), axis=-1)
     #
     x_top = tf.maximum(bbox_x1, tf.transpose(gt_x1, [0, 2, 1]))
     y_top = tf.maximum(bbox_y1, tf.transpose(gt_y1, [0, 2, 1]))
@@ -318,7 +287,7 @@ def generate_iou_map(bboxes, gt_boxes):
     ### Calculate intersection area
     intersection_area = tf.maximum(x_bottom - x_top, 0) * tf.maximum(y_bottom - y_top, 0)
     ### Calculate union area
-    union_area = (tf.expand_dims(bbox_area, 2) + tf.expand_dims(gt_area, 1) - intersection_area)
+    union_area = (tf.expand_dims(bbox_area, -1) + tf.expand_dims(gt_area, 1) - intersection_area)
     # Intersection over Union
     return intersection_area / union_area
 
