@@ -1,11 +1,17 @@
 import tensorflow as tf
 import math
-from . import bbox_utils
+from utils import bbox_utils
 
 RPN = {
     "vgg16": {
         "img_size": 500,
         "feature_map_shape": 31,
+        "anchor_ratios": [1., 2., 1./2.],
+        "anchor_scales": [128, 256, 512],
+    },
+    "mobilenet_v2": {
+        "img_size": 500,
+        "feature_map_shape": 32,
         "anchor_ratios": [1., 2., 1./2.],
         "anchor_scales": [128, 256, 512],
     }
@@ -72,10 +78,10 @@ def rpn_generator(dataset, anchors, hyper_params):
     while True:
         for image_data in dataset:
             img, gt_boxes, gt_labels = image_data
-            bbox_deltas, bbox_labels = calculate_actual_outputs(anchors, gt_boxes, gt_labels, hyper_params)
+            bbox_deltas, bbox_labels = calculate_rpn_actual_outputs(anchors, gt_boxes, gt_labels, hyper_params)
             yield img, (bbox_deltas, bbox_labels)
 
-def calculate_actual_outputs(anchors, gt_boxes, gt_labels, hyper_params):
+def calculate_rpn_actual_outputs(anchors, gt_boxes, gt_labels, hyper_params):
     """Generating one step data for training or inference.
     Batch operations supported.
     inputs:
