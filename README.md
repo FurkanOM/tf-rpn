@@ -14,6 +14,26 @@ To create virtual environment (tensorflow-2 gpu environment):
 conda env create -f environment.yml
 ```
 
+## Quality checks
+
+Run the local lint rules:
+
+```sh
+make lint
+```
+
+Run the unit test suite:
+
+```sh
+make test
+```
+
+Run both checks in sequence:
+
+```sh
+make check
+```
+
 To train your model:
 
 ```sh
